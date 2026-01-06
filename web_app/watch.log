@@ -298,3 +298,27 @@ workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
 [38;5;77m       Watch[0m updated Server, Front. Server restarting
 [38;5;77m     Serving[0m at http://0.0.0.0:8088
 listening on http://0.0.0.0:8088
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+[38;5;77m    Tailwind[0m finished [38;5;241mtailwindcss --input web_app/style/tailwind.css --config tailwind.config.js --output /home/pana/dev/arxiv_daily_rust/target/tmp/tailwind.css[0m
+    Blocking waiting for file lock on package cache
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.32s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --lib --target-dir=/home/pana/dev/arxiv_daily_rust/target/front --target=wasm32-unknown-unknown --no-default-features --features=hydrate[0m
+[38;5;77m       Front[0m generating JS/WASM with wasm-bindgen
+[38;5;77m       Using[0m wasm-bindgen version 0.2.106 detected in project
+[38;5;77m    Finished[0m generating JS/WASM for front in 2.25544491s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.12s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;77m       Watch[0m updated Front
