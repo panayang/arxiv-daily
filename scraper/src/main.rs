@@ -4,23 +4,12 @@ use serde::{Deserialize, Serialize};
 use sqlx::sqlite::SqlitePool;
 use std::time::Duration;
 
-#[derive(Debug, Serialize)]
-struct Paper {
-    id: String,
-    url: String, // Original source URL
-    title: String,
-    updated: DateTime<Utc>,
-    published: DateTime<Utc>,
-    summary: String,
-    primary_category: String,
-    categories: String, // Stored as comma-separated
-    authors: String,    // Stored as JSON
-    pdf_link: Option<String>,
-}
+use shared::Paper;
 
 #[derive(Debug, Deserialize)]
 struct Config {
     arxiv: ArxivConfig,
+    database: DatabaseConfig,
 }
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +19,11 @@ struct ArxivConfig {
     max_results: u32,
 }
 
+#[derive(Debug, Deserialize)]
+struct DatabaseConfig {
+    path: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0. Load Configuration
@@ -37,7 +31,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config: Config = toml::from_str(&config_content)?;
 
     // 1. Initialize Database
-    let pool = SqlitePool::connect("sqlite:arxiv_daily.db?mode=rwc").await?;
+    // Ensure the parent directory exists
+    if let Some(parent) = std::path::Path::new(&config.database.path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let db_url = format!("sqlite:{}?mode=rwc", config.database.path);
+    let pool = SqlitePool::connect(&db_url).await?;
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS papers (
             id TEXT PRIMARY KEY,
@@ -115,7 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("Success! All papers saved.");
 
-    println!("Done! Check arxiv_daily.db");
+    println!("Done! Check {}", config.database.path);
     Ok(())
 }
 
