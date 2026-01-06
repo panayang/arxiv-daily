@@ -1,0 +1,12 @@
+[workspace]
+members = [
+    "scraper",
+    "web_app",
+]
+resolver = "2"
+
+[profile.release]
+strip = true
+debug = false
+panic = "abort"
+lto = true

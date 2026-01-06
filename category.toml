@@ -1,0 +1,62 @@
+Physics
+Code,Name
+astro-ph,"Astrophysics (Sub-categories: .CO Cosmology, .EP Earth/Planetary, .GA Galaxies, .HE High Energy, .IM Instrumentation, .SR Solar/Stellar)"
+cond-mat,"Condensed Matter (Sub-categories: .dis-nn Disordered/Neural, .mes-hall Mesoscale, .mtrl-sci Materials, .other Other, .quant-gas Quantum Gases, .soft Soft, .stat-mech Statistical Mechanics, .str-el Strongly Correlated, .supr-con Superconductivity)"
+gr-qc,General Relativity and Quantum Cosmology
+hep-ex,High Energy Physics - Experiment
+hep-lat,High Energy Physics - Lattice
+hep-ph,High Energy Physics - Phenomenology
+hep-th,High Energy Physics - Theory
+math-ph,Mathematical Physics
+nlin,"Nonlinear Sciences (Sub-categories: .AO Adaptation, .CD Chaotic Dynamics, .CG Cellular Automata, .PS Pattern Formation, .SI Exactly Solvable Systems)"
+nucl-ex,Nuclear Experiment
+nucl-th,Nuclear Theory
+physics,"General Physics (Sub-categories: .acc-ph Accelerator, .app-ph Applied, .atom-ph Atomic, .bio-ph Biological, .chem-ph Chemical, .class-ph Classical, .comp-ph Computational, .data-an Data Analysis, .flu-dyn Fluid Dynamics, .geo-ph$ Geophysics, .opticsOptics,.plasm-phPlasma,.soc-ph` Social/Economic)"
+quant-ph,Quantum Physics
+
+Computer Sciences
+Code,Name
+cs.AI,Artificial Intelligence
+cs.CL,Computation and Language (NLP)
+cs.CV,Computer Vision and Pattern Recognition
+cs.LG,Machine Learning
+cs.RO,Robotics
+cs.CR,Cryptography and Security
+cs.DS,Data Structures and Algorithms
+cs.NE,Neural and Evolutionary Computing
+"(Others include: cs.AR, cs.CC, cs.CE, cs.CY, cs.DB, cs.DC, cs.DL, cs.DM, cs.ET, cs.FL, cs.GL, cs.GR, cs.GT, cs.HC, cs.IR, cs.IT, cs.LO, cs.MA, cs.MM, cs.MS, cs.NI, cs.OH, cs.OS, cs.PF, cs.PL, cs.SC, cs.SD, cs.SE, cs.SI, cs.SY)",
+
+Mathematical
+Code,Name
+math.AG,Algebraic Geometry
+math.CO,Combinatorics
+math.DG,Differential Geometry
+math.NT,Number Theory
+math.PR,Probability
+math.ST,Statistics Theory
+"(Others include: math.AC, math.AP, math.AT, math.CA, math.CT, math.CV, math.DS, math.FA, math.GM, math.GN, math.GR, math.GT, math.HO, math.IT, math.KT, math.LO, math.MG, math.MP, math.NA, math.OA, math.OC, math.QA, math.RA, math.RT, math.SG, math.SP)",
+
+Other Disciplines
+Code,Name
+q-bio.BM,Biomolecules
+q-bio.CB,Cell Behavior
+q-bio.GN,Genomics
+q-bio.NC,Neurons/Cognition
+q-bio.PE,Populations/Evolution
+q-fin.CP,Computational
+q-fin.EC,Economics
+q-fin.MF,Mathematical Finance
+q-fin.PM,Portfolio Management
+q-fin.TR,Trading
+stat.AP,Applications
+stat.CO,Computation
+stat.ML,Machine Learning
+stat.ME,Methodology
+stat.TH,Theory
+
+Archive,Prefix,Common Categories
+Quantitative Biology,q-bio,".BM (Biomolecules), .CB (Cell Behavior), .GN (Genomics), .NC (Neurons/Cognition), .PE (Populations/Evolution)"
+Quantitative Finance,q-fin,".CP (Computational), .EC (Economics), .MF (Mathematical Finance), .PM (Portfolio Management), .TR (Trading)"
+Statistics,stat,".AP (Applications), .CO (Computation), .ML (Machine Learning), .ME (Methodology), .TH (Theory)"
+Economics,econ,".EM (Econometrics), .GN (General Economics), .TH (Theoretical Economics)"
+Electrical Eng.,eess,".AS (Audio/Speech), .IV (Image/Video), .SP (Signal Processing), .SY (Systems/Control)"
