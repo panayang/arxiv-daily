@@ -10,7 +10,7 @@ pub async fn get_papers(query: String) -> Result<Vec<Paper>, ServerFnError> {
     use sqlx::sqlite::SqlitePool;
     use toml;
     use serde::Deserialize;
-    use chrono::{DateTime, Utc, NaiveDateTime};
+    use chrono::NaiveDateTime;
 
     #[derive(Deserialize)]
     struct Config {
@@ -82,9 +82,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <AutoReload options=options.clone()/>
                 <HydrationScripts options/>
-                <Stylesheet id="leptos" href="/pkg/web_app.css"/>
-                <Title text="arXiv Dashboard"/>
-                <Meta name="description" content="Personalized research discovery platform"/>
+                <MetaTags/>
             </head>
             <body>
                 <App/>
@@ -95,10 +93,15 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
 
 #[component]
 pub fn App() -> impl IntoView {
+    provide_meta_context();
+
     view! {
+        <Stylesheet id="leptos" href="/pkg/web_app.css"/>
+        <Title text="arXiv Dashboard"/>
+
         <Router>
             <main class="min-h-screen bg-obsidian-bg text-obsidian-text font-sans selection:bg-obsidian-accent/30">
-                <Routes fallback=|| "Not Found">
+                <Routes fallback=|| "Not Found".into_any()>
                     <Route path=path!("") view=Dashboard/>
                 </Routes>
             </main>
@@ -108,11 +111,11 @@ pub fn App() -> impl IntoView {
 
 #[component]
 fn Dashboard() -> impl IntoView {
-    let (input_val, set_input_val) = create_signal("".to_string());
-    let (debounce_query, set_debounce_query) = create_signal("".to_string());
+    let (input_val, set_input_val) = signal("".to_string());
+    let (debounce_query, set_debounce_query) = signal("".to_string());
     
     // Debounce logic
-    create_effect(move |_| {
+    Effect::new(move |_| {
         let new_val = input_val.get();
         let timeout = set_timeout_with_handle(move || {
             set_debounce_query.set(new_val);
@@ -203,7 +206,7 @@ fn Dashboard() -> impl IntoView {
 
 #[component]
 fn PaperCard(paper: Paper) -> impl IntoView {
-    let (expanded, set_expanded) = create_signal(false);
+    let (expanded, set_expanded) = signal(false);
     
     let authors = paper.authors_list();
     let display_authors = authors.join(", ");
@@ -300,5 +303,5 @@ fn PaperCard(paper: Paper) -> impl IntoView {
 pub fn hydrate() {
     _ = console_log::init_with_level(log::Level::Debug);
     console_error_panic_hook::set_once();
-    leptos::mount_to_body(App);
+    leptos::mount::mount_to_body(App);
 }

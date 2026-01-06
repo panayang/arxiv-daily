@@ -14,7 +14,7 @@ async fn main() {
 
     // build our application with a route
     let app = Router::new()
-        .route("/api/*fn_name", post(leptos_axum::handle_server_fns))
+        .route("/api/{*fn_name}", post(leptos_axum::handle_server_fns))
         .leptos_routes(&leptos_options, routes, {
             let options = leptos_options.clone();
             move || shell(options.clone())

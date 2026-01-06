@@ -1,0 +1,300 @@
+nohup: ignoring input
+[38;5;77m  JavaScript[0m config files are no longer required in Tailwind CSS v4. If you still need to use a JS config file, refer to the docs here: https://tailwindcss.com/docs/upgrade-guide#using-a-javascript-config-file.
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.47s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --lib --target-dir=/home/pana/dev/arxiv_daily_rust/target/front --target=wasm32-unknown-unknown --no-default-features --features=hydrate[0m
+[38;5;77m       Front[0m generating JS/WASM with wasm-bindgen
+[38;5;77m       Using[0m wasm-bindgen version 0.2.106 detected in project
+[38;5;77m    Finished[0m generating JS/WASM for front in 2.855058794s
+[38;5;77m    Tailwind[0m finished [38;5;241mtailwindcss --input web_app/style/tailwind.css --config tailwind.config.js --output /home/pana/dev/arxiv_daily_rust/target/tmp/tailwind.css[0m
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Blocking waiting for file lock on build directory
+warning: unused imports: `DateTime` and `Utc`
+  --> web_app/src/lib.rs:14:18
+   |
+14 |     use chrono::{DateTime, Utc, NaiveDateTime};
+   |                  ^^^^^^^^  ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (lib) generated 1 warning (run `cargo fix --lib -p web_app` to apply 1 suggestion)
+warning: unused import: `get`
+ --> web_app/src/main.rs:4:31
+  |
+4 |     use axum::routing::{post, get};
+  |                               ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (bin "web_app") generated 1 warning (run `cargo fix --bin "web_app" -p web_app` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 46s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;196m      Reload[0m TCP port 0.0.0.0:8089 already in use. You can set the port in the server integration's RenderOptions reload_port
+[38;5;77m     Serving[0m at http://0.0.0.0:8088
+[38;5;77m    Creating[0m ignore list from '.gitignore' file
+ng tower-service v0.3.3
+   Compiling num-traits v0.2.19
+   Compiling futures v0.3.31
+   Compiling icu_normalizer v2.1.1
+   Compiling mime v0.3.17
+   Compiling tower-layer v0.3.3
+   Compiling idna_adapter v1.2.1
+   Compiling rand_core v0.9.3
+   Compiling sha2 v0.10.9
+   Compiling proc-macro-utils v0.10.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling httpdate v1.0.3
+   Compiling idna v1.1.0
+   Compiling rand_chacha v0.9.0
+   Compiling http-body-util v0.1.3
+   Compiling event-listener-strategy v0.5.4
+   Compiling server_fn_macro v0.8.8
+   Compiling reactive_graph v0.2.12
+   Compiling dashmap v6.1.0
+   Compiling hydration_context v0.3.0
+   Compiling async-lock v3.4.2
+   Compiling url v2.5.8
+   Compiling rand v0.9.2
+   Compiling any_spawner v0.3.0
+   Compiling serde_urlencoded v0.7.1
+   Compiling sha1 v0.10.6
+   Compiling multer v3.1.0
+   Compiling crossbeam-utils v0.8.21
+   Compiling sync_wrapper v1.0.2
+   Compiling atomic-waker v1.1.2
+   Compiling utf-8 v0.7.6
+   Compiling data-encoding v2.9.0
+   Compiling hyper v1.8.1
+   Compiling tungstenite v0.28.0
+   Compiling quote-use-macros v0.8.4
+   Compiling manyhow-macros v0.11.4
+   Compiling itertools v0.14.0
+   Compiling tachys v0.2.11
+   Compiling encoding_rs v0.8.35
+   Compiling futures-sink v0.3.31
+   Compiling foldhash v0.1.5
+   Compiling allocator-api2 v0.2.21
+   Compiling hashbrown v0.15.5
+   Compiling reactive_stores v0.3.1
+   Compiling manyhow v0.11.4
+   Compiling quote-use v0.8.4
+   Compiling tokio-tungstenite v0.28.0
+   Compiling hyper-util v0.1.19
+   Compiling tower v0.5.2
+   Compiling axum-core v0.5.6
+   Compiling gloo-utils v0.2.0
+   Compiling zstd-sys v2.0.16+zstd.1.5.7
+   Compiling oco_ref v0.2.1
+   Compiling server_fn v0.8.9
+   Compiling serde_path_to_error v0.1.20
+   Compiling axum-macros v0.5.0
+   Compiling vcpkg v0.2.15
+   Compiling matchit v0.8.4
+   Compiling crc-catalog v2.4.0
+   Compiling libsqlite3-sys v0.30.1
+   Compiling attribute-derive-macro v0.10.5
+   Compiling crc v3.4.0
+   Compiling axum v0.8.8
+   Compiling gloo-net v0.6.0
+   Compiling hashlink v0.10.0
+   Compiling server_fn_macro_default v0.8.5
+   Compiling wasm-streams v0.4.2
+   Compiling serde_qs v0.15.0
+   Compiling leptos_macro v0.8.14
+   Compiling wasm_split_macros v0.2.0
+   Compiling leptos_hot_reload v0.8.5
+   Compiling attribute-derive v0.10.5
+   Compiling concurrent-queue v2.5.0
+   Compiling codee v0.3.5
+   Compiling leptos v0.8.15
+   Compiling crc32fast v1.5.0
+   Compiling unicase v2.8.1
+   Compiling alloc-no-stdlib v2.0.4
+   Compiling zstd-safe v7.2.4
+   Compiling alloc-stdlib v0.2.2
+   Compiling mime_guess v2.0.5
+   Compiling wasm_split_helpers v0.2.0
+   Compiling leptos_dom v0.8.7
+   Compiling leptos_server v0.8.6
+   Compiling leptos_config v0.8.8
+   Compiling tokio-stream v0.1.18
+   Compiling crossbeam-queue v0.3.12
+   Compiling chrono v0.4.42
+   Compiling atoi v2.0.0
+   Compiling futures-intrusive v0.5.0
+   Compiling simd-adler32 v0.3.8
+   Compiling base64 v0.22.1
+   Compiling adler2 v2.0.1
+   Compiling miniz_oxide v0.8.9
+   Compiling sqlx-core v0.8.6
+   Compiling brotli-decompressor v5.0.0
+   Compiling futures-channel v0.3.31
+   Compiling flume v0.11.1
+   Compiling leptos_router v0.8.11
+   Compiling brotli v8.0.2
+   Compiling sqlx-sqlite v0.8.6
+   Compiling flate2 v1.1.5
+   Compiling zstd v0.13.3
+   Compiling tokio-util v0.7.18
+   Compiling crossbeam-epoch v0.9.18
+   Compiling http-range-header v0.4.2
+   Compiling bitflags v2.10.0
+   Compiling heck v0.5.0
+   Compiling rayon-core v1.13.0
+   Compiling dotenvy v0.15.7
+   Compiling compression-core v0.4.31
+   Compiling hex v0.4.3
+   Compiling compression-codecs v0.4.35
+   Compiling sqlx-macros-core v0.8.6
+   Compiling crossbeam-deque v0.8.6
+   Compiling leptos_meta v0.8.5
+   Compiling serde_spanned v0.6.9
+   Compiling toml_datetime v0.6.11
+   Compiling toml_edit v0.22.27
+   Compiling leptos_integration_utils v0.8.7
+   Compiling sqlx-macros v0.8.6
+   Compiling async-compression v0.4.36
+   Compiling tower-http v0.6.8
+   Compiling tower-http v0.5.2
+   Compiling sqlx v0.8.6
+   Compiling leptos_axum v0.8.7
+   Compiling rayon v1.11.0
+   Compiling shared v0.1.0 (/home/pana/dev/arxiv_daily_rust/shared)
+   Compiling toml v0.8.23
+   Compiling tower v0.4.13
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+warning: unused imports: `DateTime` and `Utc`
+  --> web_app/src/lib.rs:14:18
+   |
+14 |     use chrono::{DateTime, Utc, NaiveDateTime};
+   |                  ^^^^^^^^  ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (lib) generated 1 warning (run `cargo fix --lib -p web_app` to apply 1 suggestion)
+warning: unused import: `get`
+ --> web_app/src/main.rs:4:31
+  |
+4 |     use axum::routing::{post, get};
+  |                               ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (bin "web_app") generated 1 warning (run `cargo fix --bin "web_app" -p web_app` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2m 04s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;77m     Serving[0m at http://0.0.0.0:8088
+Routes found: [AxumRouteListing { path: "/", mode: OutOfOrder, methods: [Get], regenerate: [], exclude: false }]
+
+thread 'main' (79492) panicked at web_app/src/main.rs:18:10:
+Path segments must not start with `*`. For wildcard capture, use `{*wildcard}`. If you meant to literally match a segment starting with an asterisk, call `without_v07_checks` on the router.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+[38;5;77m    Creating[0m ignore list from '.gitignore' file
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+[38;5;77m    Tailwind[0m finished [38;5;241mtailwindcss --input web_app/style/tailwind.css --config tailwind.config.js --output /home/pana/dev/arxiv_daily_rust/target/tmp/tailwind.css[0m
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.89s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --lib --target-dir=/home/pana/dev/arxiv_daily_rust/target/front --target=wasm32-unknown-unknown --no-default-features --features=hydrate[0m
+[38;5;77m       Front[0m generating JS/WASM with wasm-bindgen
+warning: unused imports: `DateTime` and `Utc`
+  --> web_app/src/lib.rs:14:18
+   |
+14 |     use chrono::{DateTime, Utc, NaiveDateTime};
+   |                  ^^^^^^^^  ^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (lib) generated 1 warning (run `cargo fix --lib -p web_app` to apply 1 suggestion)
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+[38;5;77m       Using[0m wasm-bindgen version 0.2.106 detected in project
+warning: unused import: `get`
+ --> web_app/src/main.rs:4:31
+  |
+4 |     use axum::routing::{post, get};
+  |                               ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[38;5;77m    Finished[0m generating JS/WASM for front in 2.138400514s
+warning: `web_app` (bin "web_app") generated 1 warning (run `cargo fix --bin "web_app" -p web_app` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.97s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;77m       Watch[0m updated Front, Server. Server restarting
+[38;5;77m     Serving[0m at http://0.0.0.0:8088
+Routes found: [AxumRouteListing { path: "/", mode: OutOfOrder, methods: [Get], regenerate: [], exclude: false }]
+listening on http://0.0.0.0:8088
+shell called
+get_papers called with query: ''
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+[38;5;77m    Tailwind[0m finished [38;5;241mtailwindcss --input web_app/style/tailwind.css --config tailwind.config.js --output /home/pana/dev/arxiv_daily_rust/target/tmp/tailwind.css[0m
+    Blocking waiting for file lock on package cache
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.12s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --lib --target-dir=/home/pana/dev/arxiv_daily_rust/target/front --target=wasm32-unknown-unknown --no-default-features --features=hydrate[0m
+[38;5;77m       Front[0m generating JS/WASM with wasm-bindgen
+[38;5;77m       Using[0m wasm-bindgen version 0.2.106 detected in project
+[38;5;77m    Finished[0m generating JS/WASM for front in 1.779582287s
+warning: unused import: `get`
+ --> web_app/src/main.rs:4:31
+  |
+4 |     use axum::routing::{post, get};
+  |                               ^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `web_app` (bin "web_app") generated 1 warning (run `cargo fix --bin "web_app" -p web_app` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.67s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;77m       Watch[0m updated Front, , Server. Server restarting
+[38;5;77m     Serving[0m at http://0.0.0.0:8088
+Routes found: [AxumRouteListing { path: "/", mode: OutOfOrder, methods: [Get], regenerate: [], exclude: false }]
+listening on http://0.0.0.0:8088
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+warning: profiles for the non root package will be ignored, specify profiles at the workspace root:
+package:   /home/pana/dev/arxiv_daily_rust/web_app/Cargo.toml
+workspace: /home/pana/dev/arxiv_daily_rust/Cargo.toml
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Blocking waiting for file lock on package cache
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.59s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --lib --target-dir=/home/pana/dev/arxiv_daily_rust/target/front --target=wasm32-unknown-unknown --no-default-features --features=hydrate[0m
+[38;5;77m       Front[0m generating JS/WASM with wasm-bindgen
+[38;5;77m       Using[0m wasm-bindgen version 0.2.106 detected in project
+   Compiling web_app v0.1.0 (/home/pana/dev/arxiv_daily_rust/web_app)
+[38;5;77m    Tailwind[0m finished [38;5;241mtailwindcss --input web_app/style/tailwind.css --config tailwind.config.js --output /home/pana/dev/arxiv_daily_rust/target/tmp/tailwind.css[0m
+[38;5;77m    Finished[0m generating JS/WASM for front in 3.762753191s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.21s
+[38;5;77m       Cargo[0m finished [38;5;241mcargo build --package=web_app --bin=web_app --no-default-features --features=ssr[0m
+[38;5;77m       Watch[0m updated Server, Front. Server restarting
+[38;5;77m     Serving[0m at http://0.0.0.0:8088
+listening on http://0.0.0.0:8088
