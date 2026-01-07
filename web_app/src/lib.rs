@@ -1429,7 +1429,7 @@ fn Dashboard() -> impl IntoView {
 
             <footer class="pt-20 pb-10 border-t border-white/5 text-center">
                 <p class="text-xs text-obsidian-text/20 uppercase tracking-[0.2em] font-bold">
-                    "Made with ❤️ by Apich Organization"
+                    "Made by Apich Organization"
                 </p>
             </footer>
         </div>
