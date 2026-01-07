@@ -1,0 +1,7 @@
+[arxiv]
+category = "hep-th"
+start = 0
+max_results = 2000
+
+[database]
+path = "/home/pana/dev/arxiv_daily_rust/data/arxiv_daily.db"

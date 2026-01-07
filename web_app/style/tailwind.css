@@ -1,0 +1,16 @@
+@import "tailwindcss";
+
+@theme {
+  --color-obsidian-bg: #1a1b1e;
+  --color-obsidian-sidebar: #25262b;
+  --color-obsidian-accent: #5c7cfa;
+  --color-obsidian-text: #c1c2c5;
+  --color-obsidian-heading: #ffffff;
+}
+
+@layer base {
+  body {
+    @apply bg-obsidian-bg text-obsidian-text selection:bg-obsidian-accent/30;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+}
