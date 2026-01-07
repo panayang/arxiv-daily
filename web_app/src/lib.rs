@@ -4,13 +4,12 @@ use leptos_router::components::*;
 use leptos_router::*;
 use shared::Paper;
 
-
 #[server(GetPapers, "/api")]
 pub async fn get_papers(query: String) -> Result<Vec<Paper>, ServerFnError> {
+    use chrono::NaiveDateTime;
+    use serde::Deserialize;
     use sqlx::sqlite::SqlitePool;
     use toml;
-    use serde::Deserialize;
-    use chrono::NaiveDateTime;
 
     #[derive(Deserialize)]
     struct Config {
@@ -28,7 +27,8 @@ pub async fn get_papers(query: String) -> Result<Vec<Paper>, ServerFnError> {
         .map_err(|e| ServerFnError::new(format!("Failed to parse config: {}", e)))?;
 
     let db_url = format!("sqlite:{}?mode=ro", config.database.path);
-    let pool = SqlitePool::connect(&db_url).await
+    let pool = SqlitePool::connect(&db_url)
+        .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
 
     let rows = if query.is_empty() {
@@ -52,23 +52,30 @@ pub async fn get_papers(query: String) -> Result<Vec<Paper>, ServerFnError> {
 
     use rayon::prelude::*;
     use sqlx::Row;
-    let papers: Vec<Paper> = rows.into_par_iter().map(|row| {
-        let updated_naive: NaiveDateTime = row.get("updated");
-        let published_naive: NaiveDateTime = row.get("published");
-        
-        Paper {
-            id: row.get("id"),
-            url: row.get::<Option<String>, _>("url").unwrap_or_default(),
-            title: row.get::<Option<String>, _>("title").unwrap_or_default(),
-            updated: updated_naive.and_utc().timestamp(),
-            published: published_naive.and_utc().timestamp(),
-            summary: row.get::<Option<String>, _>("summary").unwrap_or_default(),
-            primary_category: row.get::<Option<String>, _>("primary_category").unwrap_or_default(),
-            categories: row.get::<Option<String>, _>("categories").unwrap_or_default(),
-            authors: row.get::<Option<String>, _>("authors").unwrap_or_default(),
-            pdf_link: row.get("pdf_link"),
-        }
-    }).collect();
+    let papers: Vec<Paper> = rows
+        .into_par_iter()
+        .map(|row| {
+            let updated_naive: NaiveDateTime = row.get("updated");
+            let published_naive: NaiveDateTime = row.get("published");
+
+            Paper {
+                id: row.get("id"),
+                url: row.get::<Option<String>, _>("url").unwrap_or_default(),
+                title: row.get::<Option<String>, _>("title").unwrap_or_default(),
+                updated: updated_naive.and_utc().timestamp(),
+                published: published_naive.and_utc().timestamp(),
+                summary: row.get::<Option<String>, _>("summary").unwrap_or_default(),
+                primary_category: row
+                    .get::<Option<String>, _>("primary_category")
+                    .unwrap_or_default(),
+                categories: row
+                    .get::<Option<String>, _>("categories")
+                    .unwrap_or_default(),
+                authors: row.get::<Option<String>, _>("authors").unwrap_or_default(),
+                pdf_link: row.get("pdf_link"),
+            }
+        })
+        .collect();
 
     Ok(papers)
 }
@@ -113,14 +120,17 @@ pub fn App() -> impl IntoView {
 fn Dashboard() -> impl IntoView {
     let (input_val, set_input_val) = signal("".to_string());
     let (debounce_query, set_debounce_query) = signal("".to_string());
-    
+
     // Debounce logic
     Effect::new(move |_| {
         let new_val = input_val.get();
-        let timeout = set_timeout_with_handle(move || {
-            set_debounce_query.set(new_val);
-        }, std::time::Duration::from_millis(300));
-        
+        let timeout = set_timeout_with_handle(
+            move || {
+                set_debounce_query.set(new_val);
+            },
+            std::time::Duration::from_millis(300),
+        );
+
         move || {
             if let Ok(timeout) = timeout {
                 timeout.clear();
@@ -130,7 +140,7 @@ fn Dashboard() -> impl IntoView {
 
     let papers = Resource::new(
         move || debounce_query.get(),
-        |q| async move { get_papers(q).await.unwrap_or_default() }
+        |q| async move { get_papers(q).await.unwrap_or_default() },
     );
 
     view! {
@@ -166,19 +176,19 @@ fn Dashboard() -> impl IntoView {
             </header>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
-                <Transition fallback=move || view! { 
+                <Transition fallback=move || view! {
                     <div class="col-span-full py-32 flex flex-col items-center justify-center space-y-4">
                         <div class="w-12 h-12 border-4 border-obsidian-accent/20 border-t-obsidian-accent rounded-full animate-spin"></div>
                         <p class="text-obsidian-text/40 font-medium animate-pulse">"Indexing archive databases..."</p>
-                    </div> 
+                    </div>
                 }>
                     {move || papers.get().map(|data: Vec<Paper>| {
                         if data.is_empty() {
-                            view! { 
+                            view! {
                                 <div class="col-span-full py-32 text-center space-y-4">
                                     <div class="text-6xl text-obsidian-text/10 italic font-bold">"∅"</div>
                                     <p class="text-obsidian-text/40 text-lg">"No papers match your search criteria."</p>
-                                </div> 
+                                </div>
                             }.into_any()
                         } else {
                             view! {
@@ -194,7 +204,7 @@ fn Dashboard() -> impl IntoView {
                     })}
                 </Transition>
             </div>
-            
+
             <footer class="pt-20 pb-10 border-t border-white/5 text-center">
                 <p class="text-xs text-obsidian-text/20 uppercase tracking-[0.2em] font-bold">
                     "Powered by Rust • Leptos • Bitcode"
@@ -207,7 +217,7 @@ fn Dashboard() -> impl IntoView {
 #[component]
 fn PaperCard(paper: Paper) -> impl IntoView {
     let (expanded, set_expanded) = signal(false);
-    
+
     let authors = paper.authors_list();
     let display_authors = authors.join(", ");
     let title = paper.title.clone();
@@ -231,13 +241,13 @@ fn PaperCard(paper: Paper) -> impl IntoView {
                     {published_str}
                 </span>
             </div>
-            
+
             <h3 class="text-xl font-bold text-obsidian-heading leading-tight group-hover:text-obsidian-accent transition-colors mb-2">
                 <a href=url.clone() target="_blank" class="hover:underline decoration-obsidian-accent/30 underline-offset-4">
                     {title}
                 </a>
             </h3>
-            
+
             <p class="text-xs text-obsidian-text/40 font-medium mb-6 line-clamp-1 italic group-hover:text-obsidian-text/60 transition-colors">
                 {display_authors}
             </p>
@@ -248,7 +258,7 @@ fn PaperCard(paper: Paper) -> impl IntoView {
                 </div>
                 {move || if !expanded.get() && summary.len() > 180 {
                     view! {
-                        <button 
+                        <button
                             on:click=move |_| set_expanded.set(true)
                             class="text-xs font-bold text-obsidian-accent hover:text-obsidian-accent/80 mt-3 flex items-center gap-1 group/btn transition-colors focus:outline-none"
                         >
@@ -266,8 +276,8 @@ fn PaperCard(paper: Paper) -> impl IntoView {
             <div class="mt-8 flex items-center gap-4">
                 {if let Some(link) = pdf_link {
                     view! {
-                        <a 
-                            href=link 
+                        <a
+                            href=link
                             target="_blank"
                             class="flex-1 inline-flex items-center justify-center px-5 py-3 text-xs font-black text-white bg-obsidian-accent hover:bg-obsidian-accent/80 rounded-xl transition-all shadow-lg shadow-obsidian-accent/10 uppercase tracking-widest active:scale-95"
                         >
@@ -282,9 +292,9 @@ fn PaperCard(paper: Paper) -> impl IntoView {
                          <div class="flex-1 py-3 text-center text-[10px] text-obsidian-text/20 uppercase tracking-widest font-black border border-white/5 rounded-xl">"PDF Unavailable"</div>
                     }.into_any()
                 }}
-                
-                <a 
-                    href=url 
+
+                <a
+                    href=url
                     target="_blank"
                     class="p-3 text-obsidian-text/40 hover:text-obsidian-accent bg-white/5 hover:bg-white/10 rounded-xl transition-all"
                     title="View on arXiv"

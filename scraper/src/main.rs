@@ -57,14 +57,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 2. Fetch from arXiv
     // https://export.arxiv.org/api/query?search_query=submittedDate:[202401010600+TO+202401050600]
-    println!("Fetching from arXiv (cat:{}, start:{}, max:{})...", 
-        config.arxiv.category, config.arxiv.start, config.arxiv.max_results);
-    
+    println!(
+        "Fetching from arXiv (cat:{}, start:{}, max:{})...",
+        config.arxiv.category, config.arxiv.start, config.arxiv.max_results
+    );
+
     let url = format!(
         "http://export.arxiv.org/api/query?search_query=cat:{}&start={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
-        config.arxiv.category,
-        config.arxiv.start,
-        config.arxiv.max_results
+        config.arxiv.category, config.arxiv.start, config.arxiv.max_results
     );
     let client = reqwest::Client::new();
     let response = client.get(url).send().await?.bytes().await?;
