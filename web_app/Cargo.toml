@@ -24,6 +24,9 @@ console_error_panic_hook = { version = "0.1", optional = true }
 console_log = { version = "1.0", optional = true }
 log = "0.4"
 http = "1"
+reqwest = { version = "0.12", features = ["json"], optional = true }
+feed-rs = { version = "2.3", optional = true }
+serde_json = "1.0"
 
 [features]
 default = ["ssr"]
@@ -45,6 +48,8 @@ ssr = [
     "dep:sqlx",
     "dep:rayon",
     "dep:toml",
+    "dep:reqwest",
+    "dep:feed-rs",
 ]
 
 [lib]
