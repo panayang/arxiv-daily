@@ -5,7 +5,7 @@ use leptos_router::*;
 use shared::{Paper, Category};
 
 #[server(GetPapers, "/api")]
-pub async fn get_papers(query: String, category: String, date: String, end_date: String) -> Result<Vec<Paper>, ServerFnError> {
+pub async fn get_papers(query: String, category: String, date: String, end_date: String, page: usize, page_size: usize) -> Result<Vec<Paper>, ServerFnError> {
     use chrono::{DateTime, Utc};
     use sqlx::sqlite::SqlitePool;
 
@@ -15,7 +15,9 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
         .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
 
-    log::info!("Searching papers: query='{}', cat='{}', start_date='{}', end_date='{}'", query, category, date, end_date);
+    let offset = (page.max(1) - 1) * page_size;
+
+    log::info!("Searching papers: query='{}', cat='{}', start='{}', end='{}', page={}, size={}", query, category, date, end_date, page, page_size);
 
     let mut sql = "SELECT id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link FROM papers WHERE 1=1".to_string();
     
@@ -33,7 +35,7 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
         }
     }
     
-    sql.push_str(" ORDER BY published DESC LIMIT 50");
+    sql.push_str(" ORDER BY published DESC LIMIT ? OFFSET ?");
 
     let mut q = sqlx::query(&sql);
     
@@ -51,6 +53,8 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
             q = q.bind(date);
         }
     }
+    
+    q = q.bind(page_size as i64).bind(offset as i64);
 
     let rows = q.fetch_all(&pool).await
         .map_err(|e| {
@@ -88,6 +92,55 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
         .collect();
 
     Ok(papers)
+}
+
+#[server(GetPaperCount, "/api")]
+pub async fn get_paper_count(query: String, category: String, date: String, end_date: String) -> Result<usize, ServerFnError> {
+    use sqlx::sqlite::SqlitePool;
+    use sqlx::Row;
+
+    let db_path = get_db_path().await?;
+    let db_url = format!("sqlite:{}?mode=ro", db_path);
+    let pool = SqlitePool::connect(&db_url).await
+        .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
+
+    let mut sql = "SELECT COUNT(*) FROM papers WHERE 1=1".to_string();
+    
+    if !query.is_empty() {
+        sql.push_str(" AND (title LIKE ? OR summary LIKE ?)");
+    }
+    if !category.is_empty() && category != "all" {
+        sql.push_str(" AND primary_category = ?");
+    }
+    if !date.is_empty() {
+        if !end_date.is_empty() {
+            sql.push_str(" AND date(published) BETWEEN ? AND ?");
+        } else {
+            sql.push_str(" AND date(published) = ?");
+        }
+    }
+
+    let mut q = sqlx::query(&sql);
+    if !query.is_empty() {
+        let pattern = format!("%{}%", query);
+        q = q.bind(pattern.clone()).bind(pattern);
+    }
+    if !category.is_empty() && category != "all" {
+        q = q.bind(category);
+    }
+    if !date.is_empty() {
+        if !end_date.is_empty() {
+            q = q.bind(date).bind(end_date);
+        } else {
+            q = q.bind(date);
+        }
+    }
+
+    let row = q.fetch_one(&pool).await
+        .map_err(|e| ServerFnError::new(format!("Count error: {}", e)))?;
+    
+    let count: i64 = row.get(0);
+    Ok(count as usize)
 }
 
 #[server(GetConfig, "/api")]
@@ -316,6 +369,7 @@ fn Dashboard() -> impl IntoView {
     let (selected_category, set_selected_category) = signal("all".to_string());
     let (date_filter, set_date_filter) = signal("".to_string());
     let (end_date_filter, set_end_date_filter) = signal("".to_string());
+    let (page, set_page) = signal(1usize);
     let (show_config, set_show_config) = signal(false);
 
     #[derive(Clone, Default, PartialEq)]
@@ -324,6 +378,7 @@ fn Dashboard() -> impl IntoView {
         category: String,
         date: String,
         end_date: String,
+        page: usize,
     }
 
     let (trigger_search, set_trigger_search) = signal(SearchParams {
@@ -331,11 +386,22 @@ fn Dashboard() -> impl IntoView {
         category: "all".to_string(),
         date: "".to_string(),
         end_date: "".to_string(),
+        page: 1,
     });
 
     let papers = Resource::new(
         move || trigger_search.get(),
-        |params| async move { get_papers(params.query, params.category, params.date, params.end_date).await },
+        |params| async move { get_papers(params.query, params.category, params.date, params.end_date, params.page, 51).await },
+    );
+
+    let total_count = Resource::new(
+        move || {
+            let p = trigger_search.get();
+            (p.query, p.category, p.date, p.end_date)
+        },
+        |(query, category, date, end_date)| async move {
+            get_paper_count(query, category, date, end_date).await
+        }
     );
 
     // Live search debounce effect
@@ -367,7 +433,9 @@ fn Dashboard() -> impl IntoView {
             p.category = category;
             p.date = date;
             p.end_date = end_date;
+            p.page = 1; // Reset page on filter change
         });
+        set_page.set(1);
     });
 
     let fetch_action = Action::new(move |(cat, start, end): &(String, String, String)| {
@@ -386,7 +454,9 @@ fn Dashboard() -> impl IntoView {
                     category: cat,
                     date: start,
                     end_date: end,
+                    page: 1,
                 });
+                set_page.set(1);
             }
             res
         }
@@ -398,7 +468,9 @@ fn Dashboard() -> impl IntoView {
             category: selected_category.get(),
             date: date_filter.get(),
             end_date: end_date_filter.get(),
+            page: 1,
         });
+        set_page.set(1);
     };
 
     let on_reset = move |_| {
@@ -406,12 +478,28 @@ fn Dashboard() -> impl IntoView {
         set_selected_category.set("all".to_string());
         set_date_filter.set("".to_string());
         set_end_date_filter.set("".to_string());
+        set_page.set(1);
         set_trigger_search.set(SearchParams {
             query: "".to_string(),
             category: "all".to_string(),
             date: "".to_string(),
             end_date: "".to_string(),
+            page: 1,
         });
+    };
+
+    let on_page_change = move |p: usize| {
+        set_page.set(p);
+        set_trigger_search.update(|s| s.page = p);
+        // Scroll to top of list
+        /*
+        #[cfg(feature = "hydrate")]
+        {
+            if let Some(window) = web_sys::window() {
+                window.scroll_to_with_x_and_y(0.0, 400.0);
+            }
+        }
+        */
     };
     view! {
         <div class="max-w-7xl mx-auto px-4 py-8 md:px-8 md:py-12 space-y-12">
@@ -549,13 +637,23 @@ fn Dashboard() -> impl IntoView {
                                     }.into_any()
                                 } else {
                                     view! {
-                                        <For
-                                            each=move || data.clone()
-                                            key=|paper| paper.id.clone()
-                                            children=|paper| {
-                                                view! { <PaperCard paper=paper/> }
-                                            }
-                                        />
+                                        <div class="col-span-full space-y-12">
+                                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
+                                                <For
+                                                    each=move || data.clone()
+                                                    key=|paper| paper.id.clone()
+                                                    children=|paper| {
+                                                        view! { <PaperCard paper=paper/> }
+                                                    }
+                                                />
+                                            </div>
+                                            <Pagination
+                                                current_page=page.into()
+                                                total_count=total_count
+                                                page_size=51
+                                                on_page_change=Callback::new(on_page_change)
+                                            />
+                                        </div>
                                     }.into_any()
                                 }
                             }
@@ -749,6 +847,74 @@ fn ConfigModal(show: Signal<bool>, on_close: Callback<()>) -> impl IntoView {
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[component]
+fn Pagination(
+    current_page: Signal<usize>,
+    total_count: Resource<Result<usize, ServerFnError>>,
+    page_size: usize,
+    on_page_change: Callback<usize>
+) -> impl IntoView {
+    let total_pages = Memo::new(move |_| {
+        total_count.get().and_then(|res| res.ok()).map(|c| (c + page_size - 1) / page_size).unwrap_or(1)
+    });
+
+    let can_go_prev = move || current_page.get() > 1;
+    let can_go_next = move || current_page.get() < total_pages.get();
+
+    view! {
+        <div class="flex flex-col items-center gap-6 pt-12 border-t border-white/5">
+            <div class="flex items-center gap-2">
+                <button
+                    on:click=move |_| if can_go_prev() { on_page_change.run(current_page.get() - 1) }
+                    disabled=move || !can_go_prev()
+                    class="p-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-all text-obsidian-text"
+                >
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                </button>
+
+                <div class="flex items-center gap-2 font-mono text-sm px-4">
+                    <span class="text-obsidian-text/30">"Page"</span>
+                    <input
+                        type="number"
+                        min="1"
+                        max=move || total_pages.get()
+                        prop:value=move || current_page.get()
+                        class="w-16 bg-white/5 border border-white/10 rounded-lg py-1 text-center font-bold text-obsidian-heading focus:outline-none focus:border-obsidian-accent/50 focus:ring-1 focus:ring-obsidian-accent/50 transition-all"
+                        on:keydown=move |ev| {
+                            if ev.key() == "Enter" {
+                                let val = event_target_value(&ev);
+                                if let Ok(n) = val.parse::<usize>() {
+                                    if n >= 1 && n <= total_pages.get() {
+                                        on_page_change.run(n);
+                                    }
+                                }
+                            }
+                        }
+                    />
+                    <span class="text-obsidian-text/30">"of"</span>
+                    <span class="text-obsidian-text/50">{move || total_pages.get()}</span>
+                </div>
+
+                <button
+                    on:click=move |_| if can_go_next() { on_page_change.run(current_page.get() + 1) }
+                    disabled=move || !can_go_next()
+                    class="p-2 rounded-xl bg-white/5 border border-white/5 hover:bg-white/10 disabled:opacity-30 disabled:hover:bg-white/5 transition-all text-obsidian-text"
+                >
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                </button>
+            </div>
+            
+            <div class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/20">
+                {move || total_count.get().and_then(|res| res.ok()).unwrap_or(0)} " total papers discovered"
+            </div>
+        </div>
     }
 }
 
