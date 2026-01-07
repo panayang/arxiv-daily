@@ -15,7 +15,7 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
         .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
 
-    log::info!("Searching papers: query='{}', cat='{}', date='{}'", query, category, date);
+    log::info!("Searching papers: query='{}', cat='{}', start_date='{}', end_date='{}'", query, category, date, end_date);
 
     let mut sql = "SELECT id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link FROM papers WHERE 1=1".to_string();
     
@@ -375,13 +375,17 @@ fn Dashboard() -> impl IntoView {
         let start = start.clone();
         let end = end.clone();
         async move {
-            let res = fetch_new_articles(cat, start, end).await;
+            let res = fetch_new_articles(cat.clone(), start.clone(), end.clone()).await;
             if res.is_ok() {
-                set_trigger_search.update(|p| {
-                    p.query = "".to_string();
-                    p.category = "all".to_string();
-                    p.date = "".to_string();
-                    p.end_date = "".to_string();
+                // After fetching, ensure we trigger a refetch of the papers resource
+                // even if the parameters (cat/start/end) are identical to current view
+                papers.refetch();
+                
+                set_trigger_search.set(SearchParams {
+                    query: "".to_string(),
+                    category: cat,
+                    date: start,
+                    end_date: end,
                 });
             }
             res
@@ -446,6 +450,50 @@ fn Dashboard() -> impl IntoView {
                 </div>
             </header>
 
+            {move || {
+                let pending = fetch_action.pending();
+                let value = fetch_action.value();
+                
+                view! {
+                    <Show when=move || pending.get() || value.get().is_some()>
+                        <div class="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
+                            <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl px-6 py-3 shadow-2xl flex items-center gap-4">
+                                <Show 
+                                    when=move || pending.get()
+                                    fallback=move || {
+                                        value.with(|v| {
+                                            match v {
+                                                Some(Ok(count)) => {
+                                                    let count = *count;
+                                                    view! {
+                                                        <div class="flex items-center gap-3">
+                                                            <div class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                                                            <p class="text-sm font-bold text-white">"Successfully fetched "{count}" new papers"</p>
+                                                        </div>
+                                                    }.into_any()
+                                                }
+                                                Some(Err(e)) => view! {
+                                                    <div class="flex items-center gap-3">
+                                                        <div class="w-2 h-2 bg-red-500 rounded-full"></div>
+                                                        <p class="text-sm font-bold text-red-200">"Fetch failed: "{e.to_string()}</p>
+                                                    </div>
+                                                }.into_any(),
+                                                _ => ().into_any()
+                                            }
+                                        })
+                                    }
+                                >
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-4 h-4 border-2 border-obsidian-accent/20 border-t-obsidian-accent rounded-full animate-spin"></div>
+                                        <p class="text-sm font-bold text-obsidian-text">"Synchronizing with arXiv..."</p>
+                                    </div>
+                                </Show>
+                            </div>
+                        </div>
+                    </Show>
+                }
+            }}
+
             <FilterBar
                 selected_category=selected_category.into()
                 set_selected_category
@@ -454,6 +502,7 @@ fn Dashboard() -> impl IntoView {
                 on_fetch=Callback::new(move |_| {
                     fetch_action.dispatch((selected_category.get(), date_filter.get(), end_date_filter.get()));
                 })
+                fetch_pending=fetch_action.pending().into()
                 on_search=Callback::new(on_search)
                 on_reset=Callback::new(on_reset)
                 on_edit_config=Callback::new(move |_| set_show_config.set(true))
@@ -712,6 +761,7 @@ fn FilterBar(
     end_date_filter: Signal<String>,
     set_end_date_filter: WriteSignal<String>,
     on_fetch: Callback<()>,
+    fetch_pending: Signal<bool>,
     on_search: Callback<()>,
     on_reset: Callback<()>,
     on_edit_config: Callback<()>
@@ -860,12 +910,21 @@ fn FilterBar(
 
                 <button
                     on:click=move |_| on_fetch.run(())
-                    class="flex-1 sm:flex-none h-11 px-6 bg-white/5 text-obsidian-text text-xs font-black uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all border border-white/5 active:scale-95 flex items-center justify-center gap-2"
+                    disabled=move || fetch_pending.get()
+                    class="flex-1 sm:flex-none h-11 px-6 bg-white/5 text-obsidian-text text-xs font-black uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all border border-white/5 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <svg class="w-4 h-4 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                    </svg>
-                    "Fetch New"
+                    <Show 
+                        when=move || fetch_pending.get()
+                        fallback=move || view! {
+                            <svg class="w-4 h-4 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            "Fetch New"
+                        }
+                    >
+                        <div class="w-4 h-4 border-2 border-white/10 border-t-obsidian-accent rounded-full animate-spin"></div>
+                        "Fetching..."
+                    </Show>
                 </button>
 
                 <button
