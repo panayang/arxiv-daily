@@ -1,3 +1,5 @@
+cargo-features = ["profile-rustflags"]
+
 [workspace]
 members = ["scraper", "web_app", "shared"]
 resolver = "2"
@@ -6,6 +8,7 @@ resolver = "2"
 strip = true
 debug = false
 panic = "abort"
-lto = true
+lto = "fat"
 codegen-units = 1
 opt-level = 3
+rustflags = ["-C", "force-unwind-tables=no"]
