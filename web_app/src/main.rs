@@ -79,17 +79,18 @@
 #[tokio::main]
 
 async fn main() {
+
     use axum::Router;
     use axum::routing::post;
     use leptos::prelude::*;
     use leptos_axum::LeptosRoutes;
     use leptos_axum::generate_route_list;
+    use serde::Deserialize;
     use web_app::App;
     use web_app::shell;
 
-    use serde::Deserialize;
-
     #[derive(Deserialize)]
+
     struct ServerConfig {
         ip: String,
         port: u16,
@@ -97,28 +98,57 @@ async fn main() {
     }
 
     #[derive(Deserialize)]
+
     struct Config {
         server: Option<ServerConfig>,
     }
 
-    let mut conf = get_configuration(None).unwrap();
-    
+    let mut conf =
+        get_configuration(None)
+            .unwrap();
+
     // Attempt to load override config
-    if let Ok(content) = std::fs::read_to_string("config.toml") {
-        if let Ok(config) = toml::from_str::<Config>(&content) {
-            if let Some(server) = config.server {
-                let addr_str = format!("{}:{}", server.ip, server.port);
-                conf.leptos_options.site_addr = addr_str.parse().unwrap_or(conf.leptos_options.site_addr);
-                
-                // Only override site_root if LEPTOS_SITE_ROOT is NOT set (i.e., not running via cargo-leptos)
-                if std::env::var("LEPTOS_SITE_ROOT").is_err() {
-                     conf.leptos_options.site_root = server.site_root.into();
-                }
-            }
+    if let Ok(content) =
+        std::fs::read_to_string(
+            "config.toml",
+        )
+        && let Ok(config) =
+            toml::from_str::<Config>(
+                &content,
+            )
+        && let Some(server) =
+            config.server
+    {
+
+        let addr_str = format!(
+            "{}:{}",
+            server.ip, server.port
+        );
+
+        conf.leptos_options
+            .site_addr = addr_str
+            .parse()
+            .unwrap_or(
+                conf.leptos_options
+                    .site_addr,
+            );
+
+        // Only override site_root if LEPTOS_SITE_ROOT is NOT set (i.e., not running via cargo-leptos)
+        if std::env::var(
+            "LEPTOS_SITE_ROOT",
+        )
+        .is_err()
+        {
+
+            conf.leptos_options
+                .site_root = server
+                .site_root
+                .into();
         }
     }
 
-    let leptos_options = conf.leptos_options;
+    let leptos_options =
+        conf.leptos_options;
 
     let addr = leptos_options.site_addr;
 
@@ -150,11 +180,13 @@ async fn main() {
 
     #[cfg(not(debug_assertions))]
     {
+
         let url =
             format!("http://{}", addr);
 
         if let Err(e) = open::that(&url)
         {
+
             eprintln!(
                 "Failed to open \
                  browser: {}",

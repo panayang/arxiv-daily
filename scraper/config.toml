@@ -4,4 +4,4 @@ start = 0
 max_results = 2000
 
 [database]
-path = "/home/pana/dev/arxiv-daily/data/arxiv_daily.db"
+path = "../data/arxiv_daily.db"

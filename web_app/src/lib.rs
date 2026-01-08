@@ -384,7 +384,6 @@ pub async fn get_config()
 }
 
 
-
 #[server(SaveConfig, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn save_config(
@@ -417,6 +416,7 @@ pub async fn save_config(
 }
 
 #[server(FetchNewArticles, "/api", input = Bitcode, output = Bitcode)]
+
 pub async fn fetch_new_articles(
     category: String,
     start_date: String,
@@ -1709,11 +1709,11 @@ fn Pagination(
                         class="w-16 bg-white/5 border border-white/10 rounded-lg py-1 text-center font-bold text-obsidian-heading focus:outline-none focus:border-obsidian-accent/50 focus:ring-1 focus:ring-obsidian-accent/50 transition-all"
                         on:input=move |ev| {
                             let val = event_target_value(&ev);
-                            if let Ok(n) = val.parse::<usize>() {
-                                if n >= 1 && n <= total_pages.get() {
+                            if let Ok(n) = val.parse::<usize>()
+                                && n >= 1 && n <= total_pages.get() {
                                     on_page_change.run(n);
                                 }
-                            }
+
                         }
                         on:keydown=move |ev| {
                             if ev.key() == "Enter" {
