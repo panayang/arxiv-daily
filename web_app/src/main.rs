@@ -109,7 +109,11 @@ async fn main() {
             if let Some(server) = config.server {
                 let addr_str = format!("{}:{}", server.ip, server.port);
                 conf.leptos_options.site_addr = addr_str.parse().unwrap_or(conf.leptos_options.site_addr);
-                conf.leptos_options.site_root = server.site_root.into();
+                
+                // Only override site_root if LEPTOS_SITE_ROOT is NOT set (i.e., not running via cargo-leptos)
+                if std::env::var("LEPTOS_SITE_ROOT").is_err() {
+                     conf.leptos_options.site_root = server.site_root.into();
+                }
             }
         }
     }
