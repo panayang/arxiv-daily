@@ -150,8 +150,14 @@ fn transform_entry(entry: Entry) -> Paper {
         id: parsed_id,
         url: raw_id,
         title: entry.title.map(|t| t.content).unwrap_or_default(),
-        updated: entry.updated.map(|d| d.timestamp()).unwrap_or_else(|| Utc::now().timestamp()),
-        published: entry.published.map(|d| d.timestamp()).unwrap_or_else(|| Utc::now().timestamp()),
+        updated: entry
+            .updated
+            .map(|d| d.timestamp())
+            .unwrap_or_else(|| Utc::now().timestamp()),
+        published: entry
+            .published
+            .map(|d| d.timestamp())
+            .unwrap_or_else(|| Utc::now().timestamp()),
         summary: entry.summary.map(|s| s.content).unwrap_or_default(),
         primary_category: entry
             .categories

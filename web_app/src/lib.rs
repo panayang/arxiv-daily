@@ -1,47 +1,76 @@
 use leptos::prelude::*;
+use leptos::server_fn::codec::Bitcode;
 use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::*;
-use shared::{Paper, Category};
+use shared::{Category, Paper};
 
-#[server(GetPapers, "/api")]
-pub async fn get_papers(query: String, category: String, date: String, end_date: String, page: usize, page_size: usize) -> Result<Vec<Paper>, ServerFnError> {
+#[server(GetPapers, "/api", input = Bitcode, output = Bitcode)]
+pub async fn get_papers(
+    query: String,
+    category: String,
+    date: String,
+    end_date: String,
+    page: usize,
+    page_size: usize,
+) -> Result<Vec<Paper>, ServerFnError> {
     use chrono::{DateTime, Utc};
     use sqlx::sqlite::SqlitePool;
 
     let db_path = get_db_path().await?;
-    let db_url = format!("sqlite:{}?mode=ro", db_path);
+    let db_url = format!("sqlite:{}?mode=rwc", db_path);
     let pool = SqlitePool::connect(&db_url)
         .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
 
+    ensure_schema(&pool).await?;
+
     let offset = (page.max(1) - 1) * page_size;
 
-    log::info!("Searching papers: query='{}', cat='{}', start='{}', end='{}', page={}, size={}", query, category, date, end_date, page, page_size);
+    log::info!(
+        "Searching papers: query='{}', cat='{}', start='{}', end='{}', page={}, size={}",
+        query,
+        category,
+        date,
+        end_date,
+        page,
+        page_size
+    );
 
-    let mut sql = "SELECT id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link FROM papers WHERE 1=1".to_string();
-    
+    let mut sql = "SELECT id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link FROM papers".to_string();
+    let mut conditions = Vec::new();
+
     if !query.is_empty() {
-        sql.push_str(" AND (title LIKE ? OR summary LIKE ?)");
+        conditions.push("id IN (SELECT id FROM papers_fts WHERE papers_fts MATCH ?)".to_string());
     }
     if !category.is_empty() && category != "all" {
-        sql.push_str(" AND primary_category = ?");
+        conditions.push("primary_category = ?".to_string());
     }
     if !date.is_empty() {
         if !end_date.is_empty() {
-            sql.push_str(" AND date(published) BETWEEN ? AND ?");
+            conditions.push("date(published) BETWEEN ? AND ?".to_string());
         } else {
-            sql.push_str(" AND date(published) = ?");
+            conditions.push("date(published) = ?".to_string());
         }
     }
-    
+
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
+    }
+
     sql.push_str(" ORDER BY published DESC LIMIT ? OFFSET ?");
 
     let mut q = sqlx::query(&sql);
-    
+
     if !query.is_empty() {
-        let pattern = format!("%{}%", query);
-        q = q.bind(pattern.clone()).bind(pattern);
+        // Prepare FTS5 query: simple word match
+        let fts_query = query
+            .split_whitespace()
+            .map(|w| format!("{}*", w))
+            .collect::<Vec<_>>()
+            .join(" ");
+        q = q.bind(fts_query);
     }
     if !category.is_empty() && category != "all" {
         q = q.bind(category);
@@ -53,14 +82,13 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
             q = q.bind(date);
         }
     }
-    
+
     q = q.bind(page_size as i64).bind(offset as i64);
 
-    let rows = q.fetch_all(&pool).await
-        .map_err(|e| {
-            log::error!("Database query error: {}", e);
-            ServerFnError::new(format!("Query error: {}", e))
-        })?;
+    let rows = q.fetch_all(&pool).await.map_err(|e| {
+        log::error!("Database query error: {}", e);
+        ServerFnError::new(format!("Query error: {}", e))
+    })?;
 
     log::info!("Found {} papers matching criteria", rows.len());
 
@@ -94,36 +122,54 @@ pub async fn get_papers(query: String, category: String, date: String, end_date:
     Ok(papers)
 }
 
-#[server(GetPaperCount, "/api")]
-pub async fn get_paper_count(query: String, category: String, date: String, end_date: String) -> Result<usize, ServerFnError> {
-    use sqlx::sqlite::SqlitePool;
+#[server(GetPaperCount, "/api", input = Bitcode, output = Bitcode)]
+pub async fn get_paper_count(
+    query: String,
+    category: String,
+    date: String,
+    end_date: String,
+) -> Result<usize, ServerFnError> {
     use sqlx::Row;
+    use sqlx::sqlite::SqlitePool;
 
     let db_path = get_db_path().await?;
-    let db_url = format!("sqlite:{}?mode=ro", db_path);
-    let pool = SqlitePool::connect(&db_url).await
+    let db_url = format!("sqlite:{}?mode=rwc", db_path);
+    let pool = SqlitePool::connect(&db_url)
+        .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
 
-    let mut sql = "SELECT COUNT(*) FROM papers WHERE 1=1".to_string();
-    
+    ensure_schema(&pool).await?;
+
+    let mut sql = "SELECT COUNT(*) FROM papers".to_string();
+    let mut conditions = Vec::new();
+
     if !query.is_empty() {
-        sql.push_str(" AND (title LIKE ? OR summary LIKE ?)");
+        conditions.push("id IN (SELECT id FROM papers_fts WHERE papers_fts MATCH ?)".to_string());
     }
     if !category.is_empty() && category != "all" {
-        sql.push_str(" AND primary_category = ?");
+        conditions.push("primary_category = ?".to_string());
     }
     if !date.is_empty() {
         if !end_date.is_empty() {
-            sql.push_str(" AND date(published) BETWEEN ? AND ?");
+            conditions.push("date(published) BETWEEN ? AND ?".to_string());
         } else {
-            sql.push_str(" AND date(published) = ?");
+            conditions.push("date(published) = ?".to_string());
         }
+    }
+
+    if !conditions.is_empty() {
+        sql.push_str(" WHERE ");
+        sql.push_str(&conditions.join(" AND "));
     }
 
     let mut q = sqlx::query(&sql);
     if !query.is_empty() {
-        let pattern = format!("%{}%", query);
-        q = q.bind(pattern.clone()).bind(pattern);
+        let fts_query = query
+            .split_whitespace()
+            .map(|w| format!("{}*", w))
+            .collect::<Vec<_>>()
+            .join(" ");
+        q = q.bind(fts_query);
     }
     if !category.is_empty() && category != "all" {
         q = q.bind(category);
@@ -136,14 +182,16 @@ pub async fn get_paper_count(query: String, category: String, date: String, end_
         }
     }
 
-    let row = q.fetch_one(&pool).await
+    let row = q
+        .fetch_one(&pool)
+        .await
         .map_err(|e| ServerFnError::new(format!("Count error: {}", e)))?;
-    
+
     let count: i64 = row.get(0);
     Ok(count as usize)
 }
 
-#[server(GetConfig, "/api")]
+#[server(GetConfig, "/api", input = Bitcode, output = Bitcode)]
 pub async fn get_config() -> Result<String, ServerFnError> {
     let content = std::fs::read_to_string("config.toml")
         .or_else(|_| std::fs::read_to_string("../config.toml"))
@@ -151,7 +199,7 @@ pub async fn get_config() -> Result<String, ServerFnError> {
     Ok(content)
 }
 
-#[server(SaveConfig, "/api")]
+#[server(SaveConfig, "/api", input = Bitcode, output = Bitcode)]
 pub async fn save_config(content: String) -> Result<(), ServerFnError> {
     let path = if std::path::Path::new("config.toml").exists() {
         "config.toml"
@@ -163,41 +211,60 @@ pub async fn save_config(content: String) -> Result<(), ServerFnError> {
     Ok(())
 }
 
-#[server(FetchNewArticles, "/api")]
-pub async fn fetch_new_articles(category: String, start_date: String, end_date: String) -> Result<usize, ServerFnError> {
-    use sqlx::sqlite::SqlitePool;
+#[server(FetchNewArticles, "/api", input = Bitcode, output = Bitcode)]
+pub async fn fetch_new_articles(
+    category: String,
+    start_date: String,
+    end_date: String,
+) -> Result<usize, ServerFnError> {
     use chrono::Utc;
     use feed_rs::model::Entry;
+    use sqlx::sqlite::SqlitePool;
 
     let db_path = get_db_path().await?;
     let db_url = format!("sqlite:{}?mode=rwc", db_path);
-    let pool = SqlitePool::connect(&db_url).await
+    let pool = SqlitePool::connect(&db_url)
+        .await
         .map_err(|e| ServerFnError::new(format!("Db connection error: {}", e)))?;
+
+    ensure_schema(&pool).await?;
 
     use serde::Deserialize;
     use toml;
     #[derive(Deserialize)]
-    struct ArxivConfig { 
+    struct ArxivConfig {
         category: String,
         #[serde(default)]
         start: i32,
         #[serde(default = "default_max_results")]
         max_results: i32,
     }
-    fn default_max_results() -> i32 { 50 }
+    fn default_max_results() -> i32 {
+        50
+    }
     #[derive(Deserialize)]
-    struct Config { arxiv: ArxivConfig }
-    
+    struct Config {
+        arxiv: ArxivConfig,
+    }
+
     let config_content = std::fs::read_to_string("config.toml")
         .or_else(|_| std::fs::read_to_string("../config.toml"))
         .map_err(|e| ServerFnError::new(format!("Failed to read config: {}", e)))?;
     let config: Config = toml::from_str(&config_content)
         .map_err(|e| ServerFnError::new(format!("Failed to parse config: {}", e)))?;
 
-    let target_category = if category == "all" { config.arxiv.category } else { category };
+    let target_category = if category == "all" {
+        config.arxiv.category
+    } else {
+        category
+    };
 
     let url = if !end_date.is_empty() {
-        let s = if start_date.is_empty() { &end_date } else { &start_date };
+        let s = if start_date.is_empty() {
+            &end_date
+        } else {
+            &start_date
+        };
         let s_fmt = s.replace("-", "") + "0600";
         let e_fmt = end_date.replace("-", "") + "0600";
         // ArXiv API requires at least one search term (like cat:xxx) to be used with a date range.
@@ -212,98 +279,223 @@ pub async fn fetch_new_articles(category: String, start_date: String, end_date: 
             target_category, config.arxiv.start, config.arxiv.max_results
         )
     };
-    
+
     let client = reqwest::Client::new();
-    let response = client.get(url).send().await
-        .map_err(|e| ServerFnError::new(format!("ArXiv request failed: {}", e)))?;
+    let mut retries = 5;
+    let mut delay = tokio::time::Duration::from_secs(3);
+    let mut response_bytes = None;
 
-    let status = response.status();
-    let bytes = response.bytes().await
-        .map_err(|e| ServerFnError::new(format!("Failed to read body: {}", e)))?;
+    for i in 0..retries {
+        log::info!(
+            "Fetching ArXiv articles (attempt {}/{}): {}",
+            i + 1,
+            retries,
+            url
+        );
+        let res = client.get(&url).send().await;
 
-    if !status.is_success() {
-        let err_msg = String::from_utf8_lossy(&bytes);
-        return Err(ServerFnError::new(format!("ArXiv API error ({}): {}", status, err_msg)));
+        match res {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    response_bytes =
+                        Some(resp.bytes().await.map_err(|e| {
+                            ServerFnError::new(format!("Failed to read body: {}", e))
+                        })?);
+                    break;
+                } else if status.as_u16() == 429 || status.as_u16() == 503 {
+                    if i == retries - 1 {
+                        return Err(ServerFnError::new(format!(
+                            "ArXiv API error ({}): Too many attempts",
+                            status
+                        )));
+                    }
+                    log::warn!(
+                        "ArXiv API error ({}). Retrying in {}s...",
+                        status,
+                        delay.as_secs()
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                } else {
+                    let err_msg = resp.text().await.unwrap_or_default();
+                    return Err(ServerFnError::new(format!(
+                        "ArXiv API error ({}): {}",
+                        status, err_msg
+                    )));
+                }
+            }
+            Err(e) => {
+                if i == retries - 1 {
+                    return Err(ServerFnError::new(format!(
+                        "ArXiv request failed after {} attempts: {}",
+                        retries, e
+                    )));
+                }
+                log::warn!(
+                    "ArXiv request error: {}. Retrying in {}s...",
+                    e,
+                    delay.as_secs()
+                );
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+            }
+        }
     }
+
+    let bytes = response_bytes
+        .ok_or_else(|| ServerFnError::new("Failed to fetch articles after retries"))?;
 
     let feed = feed_rs::parser::parse(&bytes[..])
         .map_err(|e| ServerFnError::new(format!("Failed to parse feed: {}", e)))?;
-    
-    let count = feed.entries.len();
-    
-    let papers: Vec<Paper> = feed.entries.into_iter().map(|entry: Entry| {
-        let authors: Vec<String> = entry.authors.iter().map(|a| a.name.clone()).collect();
-        let pdf_link = entry.links.iter()
-            .find(|l| l.media_type.as_deref() == Some("application/pdf"))
-            .map(|l| l.href.clone());
 
-        let raw_id = entry.id.clone();
-        let parsed_id = if let Some(pos) = raw_id.find("/abs/") {
-            let s = &raw_id[pos + 5..];
-            if let Some(v_pos) = s.rfind('v') {
-                if s[v_pos + 1..].chars().all(|c| c.is_ascii_digit()) {
-                    s[..v_pos].to_string()
+    let count = feed.entries.len();
+
+    let papers: Vec<Paper> = feed
+        .entries
+        .into_iter()
+        .map(|entry: Entry| {
+            let authors: Vec<String> = entry.authors.iter().map(|a| a.name.clone()).collect();
+            let pdf_link = entry
+                .links
+                .iter()
+                .find(|l| l.media_type.as_deref() == Some("application/pdf"))
+                .map(|l| l.href.clone());
+
+            let raw_id = entry.id.clone();
+            let parsed_id = if let Some(pos) = raw_id.find("/abs/") {
+                let s = &raw_id[pos + 5..];
+                if let Some(v_pos) = s.rfind('v') {
+                    if s[v_pos + 1..].chars().all(|c| c.is_ascii_digit()) {
+                        s[..v_pos].to_string()
+                    } else {
+                        s.to_string()
+                    }
                 } else {
                     s.to_string()
                 }
             } else {
-                s.to_string()
+                raw_id.clone()
+            };
+
+            Paper {
+                id: parsed_id,
+                url: raw_id,
+                title: entry.title.map(|t| t.content).unwrap_or_default(),
+                updated: entry
+                    .updated
+                    .map(|d| d.timestamp())
+                    .unwrap_or_else(|| Utc::now().timestamp()),
+                published: entry
+                    .published
+                    .map(|d| d.timestamp())
+                    .unwrap_or_else(|| Utc::now().timestamp()),
+                summary: entry.summary.map(|s| s.content).unwrap_or_default(),
+                primary_category: entry
+                    .categories
+                    .first()
+                    .map(|c| c.term.clone())
+                    .unwrap_or_default(),
+                categories: entry
+                    .categories
+                    .iter()
+                    .map(|c| c.term.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+                authors: serde_json::to_string(&authors).unwrap_or_default(),
+                pdf_link,
             }
-        } else {
-            raw_id.clone()
-        };
+        })
+        .collect();
 
-        Paper {
-            id: parsed_id,
-            url: raw_id,
-            title: entry.title.map(|t| t.content).unwrap_or_default(),
-            updated: entry.updated.map(|d| d.timestamp()).unwrap_or_else(|| Utc::now().timestamp()),
-            published: entry.published.map(|d| d.timestamp()).unwrap_or_else(|| Utc::now().timestamp()),
-            summary: entry.summary.map(|s| s.content).unwrap_or_default(),
-            primary_category: entry.categories.first().map(|c| c.term.clone()).unwrap_or_default(),
-            categories: entry.categories.iter().map(|c| c.term.clone()).collect::<Vec<_>>().join(","),
-            authors: serde_json::to_string(&authors).unwrap_or_default(),
-            pdf_link,
-        }
-    }).collect();
+    if !papers.is_empty() {
+        // Bulk insert using a single query for better performance
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link) ",
+        );
 
-    let mut tx = pool.begin().await
-        .map_err(|e| ServerFnError::new(format!("Transaction start error: {}", e)))?;
-    
+        query_builder.push_values(papers, |mut b, paper| {
+            b.push_bind(paper.id)
+                .push_bind(paper.url)
+                .push_bind(paper.title)
+                .push_bind(
+                    chrono::NaiveDateTime::from_timestamp_opt(paper.updated, 0).unwrap_or_default(),
+                )
+                .push_bind(
+                    chrono::NaiveDateTime::from_timestamp_opt(paper.published, 0)
+                        .unwrap_or_default(),
+                )
+                .push_bind(paper.summary)
+                .push_bind(paper.primary_category)
+                .push_bind(paper.categories)
+                .push_bind(paper.authors)
+                .push_bind(paper.pdf_link);
+        });
+
+        query_builder.push(
+            " ON CONFLICT(id) DO UPDATE SET
+            updated = excluded.updated,
+            title = excluded.title,
+            summary = excluded.summary,
+            url = excluded.url",
+        );
+
+        let query = query_builder.build();
+        query
+            .execute(&pool)
+            .await
+            .map_err(|e| ServerFnError::new(format!("Bulk insert error: {}", e)))?;
+    }
+
+    Ok(count)
+}
+
+#[cfg(feature = "ssr")]
+async fn ensure_schema(pool: &sqlx::SqlitePool) -> Result<(), ServerFnError> {
     // Ensure table exists
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS papers (id TEXT PRIMARY KEY, url TEXT, title TEXT, updated DATETIME, published DATETIME, summary TEXT, primary_category TEXT, categories TEXT, authors TEXT, pdf_link TEXT)"
-    ).execute(&pool).await.ok();
+    ).execute(pool).await.map_err(|e| ServerFnError::new(format!("Table creation error: {}", e)))?;
 
-    for paper in papers {
-        sqlx::query(
-            "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-        updated = excluded.updated,
-        title = excluded.title,
-        summary = excluded.summary,
-        url = excluded.url"
-        )
-        .bind(&paper.id)
-        .bind(&paper.url)
-        .bind(&paper.title)
-        .bind(chrono::NaiveDateTime::from_timestamp_opt(paper.updated, 0).unwrap_or_default())
-        .bind(chrono::NaiveDateTime::from_timestamp_opt(paper.published, 0).unwrap_or_default())
-        .bind(&paper.summary)
-        .bind(&paper.primary_category)
-        .bind(&paper.categories)
-        .bind(&paper.authors)
-        .bind(&paper.pdf_link)
-        .execute(&mut *tx)
+    // FTS5 Virtual Table for searching
+    sqlx::query(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS papers_fts USING fts5(id UNINDEXED, title, summary, content='papers', content_rowid='rowid')"
+    ).execute(pool).await.map_err(|e| ServerFnError::new(format!("FTS table creation error: {}", e)))?;
+
+    // Triggers to keep FTS5 in sync
+    sqlx::query("CREATE TRIGGER IF NOT EXISTS papers_ai AFTER INSERT ON papers BEGIN
+                  INSERT INTO papers_fts(rowid, id, title, summary) VALUES (new.rowid, new.id, new.title, new.summary);
+                END;").execute(pool).await.ok();
+    sqlx::query("CREATE TRIGGER IF NOT EXISTS papers_ad AFTER DELETE ON papers BEGIN
+                  INSERT INTO papers_fts(papers_fts, rowid, id, title, summary) VALUES('delete', old.rowid, old.id, old.title, old.summary);
+                END;").execute(pool).await.ok();
+    sqlx::query("CREATE TRIGGER IF NOT EXISTS papers_au AFTER UPDATE ON papers BEGIN
+                  INSERT INTO papers_fts(papers_fts, rowid, id, title, summary) VALUES('delete', old.rowid, old.id, old.title, old.summary);
+                  INSERT INTO papers_fts(rowid, id, title, summary) VALUES (new.rowid, new.id, new.title, new.summary);
+                END;").execute(pool).await.ok();
+
+    sqlx::query("CREATE INDEX IF NOT EXISTS idx_papers_published ON papers (published DESC)")
+        .execute(pool)
         .await
-        .map_err(|e| ServerFnError::new(format!("Insert error: {}", e)))?;
+        .ok();
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS idx_papers_primary_category ON papers (primary_category)",
+    )
+    .execute(pool)
+    .await
+    .ok();
+
+    // Initial population of FTS if empty
+    let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM papers_fts")
+        .fetch_one(pool)
+        .await
+        .unwrap_or((0,));
+    if count.0 == 0 {
+        sqlx::query("INSERT INTO papers_fts(rowid, id, title, summary) SELECT rowid, id, title, summary FROM papers")
+            .execute(pool).await.ok();
     }
 
-    tx.commit().await
-        .map_err(|e| ServerFnError::new(format!("Commit error: {}", e)))?;
-
-    Ok(count)
+    Ok(())
 }
 
 #[cfg(feature = "ssr")]
@@ -391,7 +583,17 @@ fn Dashboard() -> impl IntoView {
 
     let papers = Resource::new(
         move || trigger_search.get(),
-        |params| async move { get_papers(params.query, params.category, params.date, params.end_date, params.page, 51).await },
+        |params| async move {
+            get_papers(
+                params.query,
+                params.category,
+                params.date,
+                params.end_date,
+                params.page,
+                51,
+            )
+            .await
+        },
     );
 
     let total_count = Resource::new(
@@ -401,7 +603,7 @@ fn Dashboard() -> impl IntoView {
         },
         |(query, category, date, end_date)| async move {
             get_paper_count(query, category, date, end_date).await
-        }
+        },
     );
 
     // Live search debounce effect
@@ -448,7 +650,7 @@ fn Dashboard() -> impl IntoView {
                 // After fetching, ensure we trigger a refetch of the papers resource
                 // even if the parameters (cat/start/end) are identical to current view
                 papers.refetch();
-                
+
                 set_trigger_search.set(SearchParams {
                     query: "".to_string(),
                     category: cat,
@@ -537,12 +739,12 @@ fn Dashboard() -> impl IntoView {
             {move || {
                 let pending = fetch_action.pending();
                 let value = fetch_action.value();
-                
+
                 view! {
                     <Show when=move || pending.get() || value.get().is_some()>
                         <div class="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
                             <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl px-6 py-3 shadow-2xl flex items-center gap-4">
-                                <Show 
+                                <Show
                                     when=move || pending.get()
                                     fallback=move || {
                                         value.with(|v| {
@@ -606,25 +808,7 @@ fn Dashboard() -> impl IntoView {
                     {move || {
                         match papers.get() {
                             Some(Ok(current_papers)) => {
-                                let start_str = date_filter.get();
-                                let end_str = end_date_filter.get();
-                                
-                                let data = if start_str.is_empty() {
-                                    current_papers
-                                } else if end_str.is_empty() {
-                                    // Single day filter
-                                    current_papers.into_iter().filter(|p| {
-                                        p.published_date().format("%Y-%m-%d").to_string() == start_str
-                                    }).collect()
-                                } else {
-                                    // Range filter
-                                    current_papers.into_iter().filter(|p| {
-                                        let p_date = p.published_date().format("%Y-%m-%d").to_string();
-                                        p_date >= start_str && p_date <= end_str
-                                    }).collect()
-                                };
-
-                                if data.is_empty() {
+                                if current_papers.is_empty() {
                                     view! {
                                         <div class="col-span-full py-32 text-center space-y-4">
                                             <div class="text-6xl text-obsidian-text/10 italic font-bold">"∅"</div>
@@ -636,7 +820,7 @@ fn Dashboard() -> impl IntoView {
                                         <div class="col-span-full space-y-12">
                                             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
                                                 <For
-                                                    each=move || data.clone()
+                                                    each=move || current_papers.clone()
                                                     key=|paper| paper.id.clone()
                                                     children=|paper| {
                                                         view! { <PaperCard paper=paper/> }
@@ -659,7 +843,7 @@ fn Dashboard() -> impl IntoView {
                                         <div class="text-red-400 text-4xl">"⚠"</div>
                                         <h3 class="text-xl font-bold text-red-200">"Data Fetching Error"</h3>
                                         <p class="text-red-200/60 font-mono text-sm">{e.to_string()}</p>
-                                        <button 
+                                        <button
                                             on:click=move |_| papers.refetch()
                                             class="px-6 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-200 rounded-lg transition-colors border border-red-500/30"
                                         >
@@ -851,10 +1035,14 @@ fn Pagination(
     current_page: Signal<usize>,
     total_count: Resource<Result<usize, ServerFnError>>,
     page_size: usize,
-    on_page_change: Callback<usize>
+    on_page_change: Callback<usize>,
 ) -> impl IntoView {
     let total_pages = Memo::new(move |_| {
-        total_count.get().and_then(|res| res.ok()).map(|c| (c + page_size - 1) / page_size).unwrap_or(1)
+        total_count
+            .get()
+            .and_then(|res| res.ok())
+            .map(|c| (c + page_size - 1) / page_size)
+            .unwrap_or(1)
     });
 
     let can_go_prev = move || current_page.get() > 1;
@@ -906,7 +1094,7 @@ fn Pagination(
                     </svg>
                 </button>
             </div>
-            
+
             <div class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/20">
                 {move || total_count.get().and_then(|res| res.ok()).unwrap_or(0)} " total papers discovered"
             </div>
@@ -926,7 +1114,7 @@ fn FilterBar(
     fetch_pending: Signal<bool>,
     on_search: Callback<()>,
     on_reset: Callback<()>,
-    on_edit_config: Callback<()>
+    on_edit_config: Callback<()>,
 ) -> impl IntoView {
     let (category_search, set_category_search) = signal("".to_string());
     let (is_open, set_is_open) = signal(false);
@@ -935,7 +1123,7 @@ fn FilterBar(
         let search = category_search.get().to_lowercase();
         let mut base = vec![("all", "All Categories")];
         base.extend(Category::ALL_CATEGORIES.iter().map(|(c, n)| (*c, *n)));
-        
+
         if search.is_empty() {
             base
         } else {
@@ -964,7 +1152,7 @@ fn FilterBar(
         <div class="flex flex-wrap items-center gap-4 bg-obsidian-sidebar/50 p-4 rounded-2xl border border-white/5 shadow-inner">
             <div class="flex flex-col gap-1.5 min-w-[240px] flex-1 relative">
                 <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30 ml-1">"Category"</label>
-                
+
                 <div class="relative group">
                     <button
                         on:click=move |_| set_is_open.update(|v| *v = !*v)
@@ -989,7 +1177,7 @@ fn FilterBar(
                                 />
                             </div>
                             <div class="max-h-60 overflow-y-auto custom-scrollbar">
-                                <For 
+                                <For
                                     each=move || filtered_categories.get()
                                     key=|(code, _)| code.to_string()
                                     children=move |(code, name)| {
@@ -1075,7 +1263,7 @@ fn FilterBar(
                     disabled=move || fetch_pending.get()
                     class="flex-1 sm:flex-none h-11 px-6 bg-white/5 text-obsidian-text text-xs font-black uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all border border-white/5 active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                    <Show 
+                    <Show
                         when=move || fetch_pending.get()
                         fallback=move || view! {
                             <svg class="w-4 h-4 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">

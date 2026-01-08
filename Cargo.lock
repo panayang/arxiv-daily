@@ -2812,6 +2812,7 @@ checksum = "353d02fa2886cd8dae0b8da0965289fa8f2ecc7df633d1ce965f62fdf9644d29"
 dependencies = [
  "axum",
  "base64",
+ "bitcode",
  "bytes",
  "const-str",
  "const_format",
@@ -3997,6 +3998,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "bitcode",
+ "bytes",
  "chrono",
  "console_error_panic_hook",
  "console_log",
@@ -4011,6 +4013,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "server_fn",
  "shared",
  "sqlx",
  "tokio",

@@ -1,9 +1,5 @@
 [workspace]
-members = [
-    "scraper",
-    "web_app",
-    "shared",
-]
+members = ["scraper", "web_app", "shared"]
 resolver = "2"
 
 [profile.release]
@@ -12,4 +8,4 @@ debug = false
 panic = "abort"
 lto = true
 codegen-units = 1
-opt-level = "z"
+opt-level = 3
