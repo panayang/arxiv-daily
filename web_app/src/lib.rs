@@ -1,3 +1,9 @@
+//! This is the library for the arxiv-daily project.
+
+#![allow(
+    clippy::empty_line_after_outer_attr
+)]
+
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
 use leptos_meta::*;
@@ -719,7 +725,7 @@ pub async fn fetch_new_articles(
     if !papers.is_empty() {
 
         // Bulk insert using a single query for better performance
-        let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+        let mut query_builder: sqlx::QueryBuilder<'_, sqlx::Sqlite> = sqlx::QueryBuilder::new(
             "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link) ",
         );
 
@@ -1419,6 +1425,8 @@ fn Dashboard() -> impl IntoView {
                 </Transition>
             </div>
 
+            <BackToTop/>
+
             <footer class="pt-20 pb-10 border-t border-white/5 text-center">
                 <p class="text-xs text-obsidian-text/20 uppercase tracking-[0.2em] font-bold">
                     "Made with ❤️ by Apich Organization"
@@ -1504,7 +1512,7 @@ fn PaperCard(
                         </button>
                     }.into_any()
                 } else {
-                    view! {}.into_any()
+                    ().into_any()
                 }}
             </div>
 
@@ -1660,8 +1668,9 @@ fn Pagination(
                 })
                 .map(|c| {
 
-                    (c + page_size - 1)
-                        / page_size
+                    c.div_ceil(
+                        page_size,
+                    )
                 })
                 .unwrap_or(1)
         });
@@ -1699,11 +1708,11 @@ fn Pagination(
                         on:keydown=move |ev| {
                             if ev.key() == "Enter" {
                                 let val = event_target_value(&ev);
-                                if let Ok(n) = val.parse::<usize>() {
-                                    if n >= 1 && n <= total_pages.get() {
+                                if let Ok(n) = val.parse::<usize>()
+                                    && n >= 1 && n <= total_pages.get() {
                                         on_page_change.run(n);
                                     }
-                                }
+
                             }
                         }
                     />
@@ -1953,6 +1962,96 @@ fn FilterBar(
                     "Config"
                 </button>
             </div>
+        </div>
+    }
+}
+
+#[component]
+
+fn BackToTop() -> impl IntoView {
+
+    let (show, set_show) =
+        signal(false);
+
+    #[cfg(feature = "ssr")]
+    let _ = set_show;
+
+    #[cfg(feature = "hydrate")]
+    {
+
+        use leptos::ev;
+        use leptos::prelude::window_event_listener;
+
+        // Debug hydration
+        log::info!(
+            "BackToTop hydrated"
+        );
+
+        window_event_listener(
+            ev::scroll,
+            move |_| {
+                if let Some(window) =
+                    web_sys::window()
+                {
+
+                    let y = window
+                        .scroll_y()
+                        .unwrap_or(0.0);
+
+                    let show_now =
+                        y > 300.0;
+
+                    if show_now != show.get_untracked() {
+                    set_show.set(show_now);
+                }
+                }
+            },
+        );
+    }
+
+    // Monitor signal changes
+    Effect::new(move |_| {
+
+        log::info!(
+            "BackToTop visibility: {}",
+            show.get()
+        );
+    });
+
+    let scroll_to_top = move |_| {
+
+        #[cfg(feature = "hydrate")]
+        if let Some(window) =
+            web_sys::window()
+        {
+
+            let options = web_sys::ScrollToOptions::new();
+
+            options.set_top(0.0);
+
+            options.set_behavior(web_sys::ScrollBehavior::Smooth);
+
+            window.scroll_to_with_scroll_to_options(&options);
+        }
+    };
+
+    view! {
+        <div class="fixed bottom-10 right-10 z-[9999]" style="pointer-events: none;">
+            <Show when=move || show.get()>
+                <button
+                    on:click=scroll_to_top
+                    class="p-4 bg-obsidian-accent text-white rounded-full shadow-[0_0_20px_rgba(92,124,250,0.6)] hover:bg-obsidian-accent/80 hover:scale-110 active:scale-95 transition-all duration-300 group flex items-center justify-center border border-white/20"
+                    style="pointer-events: auto;"
+                    title="Back to Top"
+                >
+                    <div class="flex flex-col items-center">
+                        <svg class="w-6 h-6 group-hover:-translate-y-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 15l7-7 7 7" />
+                        </svg>
+                        <span class="text-[8px] font-bold mt-1 uppercase tracking-tighter">"TOP"</span>
+                    </div>
+                </button>
+            </Show>
         </div>
     }
 }

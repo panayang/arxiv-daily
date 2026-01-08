@@ -1,3 +1,9 @@
+//! This is the shared library for the arxiv-daily project.
+
+#![allow(
+    clippy::empty_line_after_outer_attr
+)]
+
 use bitcode::Decode;
 use bitcode::Encode;
 use chrono::DateTime;

@@ -1,3 +1,79 @@
+//! This is the arXiv-daily project.
+
+// =========================================================================
+// RUST LINT CONFIGURATION: arxiv-daily
+// =========================================================================
+
+// -------------------------------------------------------------------------
+// LEVEL 1: CRITICAL ERRORS (Deny)
+// -------------------------------------------------------------------------
+#![deny(
+    // Rust Compiler Errors
+    dead_code,
+    unreachable_code,
+    improper_ctypes_definitions,
+    future_incompatible,
+    nonstandard_style,
+    rust_2018_idioms,
+    clippy::perf,
+    clippy::correctness,
+    clippy::suspicious,
+    clippy::unwrap_used,
+    clippy::missing_safety_doc,
+    clippy::same_item_push,
+    clippy::implicit_clone,
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::single_call_fn,
+    unsafe_code,
+)]
+// -------------------------------------------------------------------------
+// LEVEL 2: STYLE WARNINGS (Warn)
+// -------------------------------------------------------------------------
+#![warn(
+    missing_docs,
+    warnings,
+    // To avoid performance issues in hot paths
+    clippy::expect_used,
+    // To avoid simd optimization issues
+    clippy::indexing_slicing,
+    // To avoid simd optimization issues
+    clippy::arithmetic_side_effects,
+    // Possible Truncation warnned, due to CPU branch prediction and simd optimization programs, we will just warn this problems instead deny it.
+    clippy::cast_precision_loss,
+    clippy::cast_possible_wrap,
+    clippy::cast_possible_truncation,
+    clippy::dbg_macro,
+    clippy::todo,
+    // This is usually a sign of dead code --- but for development purposes, we will just warn it.
+    clippy::used_underscore_binding,
+    clippy::unnecessary_safety_comment,
+    // We thinks do not collapsible if makes the code more extensible.
+    clippy::collapsible_if,
+    clippy::collapsible_match,
+    clippy::collapsible_else_if,
+    clippy::many_single_char_names,
+    clippy::similar_names,
+    clippy::redundant_else,
+    clippy::needless_continue,
+    clippy::manual_let_else,
+    clippy::no_effect_underscore_binding,
+    clippy::must_use_candidate
+)]
+// -------------------------------------------------------------------------
+// LEVEL 3: ALLOW/IGNORABLE (Allow)
+// -------------------------------------------------------------------------
+#![allow(
+    clippy::restriction,
+    clippy::inline_always,
+    unused_doc_comments,
+    clippy::empty_line_after_doc_comments,
+    clippy::empty_line_after_outer_attr,
+    // It is always reporting on normal math writings.
+    clippy::doc_markdown
+)]
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 
@@ -44,6 +120,23 @@ async fn main() {
         "listening on http://{}",
         &addr
     );
+
+    #[cfg(not(debug_assertions))]
+    {
+
+        let url =
+            format!("http://{}", addr);
+
+        if let Err(e) = open::that(&url)
+        {
+
+            eprintln!(
+                "Failed to open \
+                 browser: {}",
+                e
+            );
+        }
+    }
 
     axum::serve(listener, app)
         .await

@@ -1,10 +1,12 @@
-use std::time::Duration;
+//! This is the scraper for the arxiv-daily project.
 
-use chrono::DateTime;
+#![allow(
+    clippy::empty_line_after_outer_attr
+)]
+
 use chrono::Utc;
 use feed_rs::model::Entry;
 use serde::Deserialize;
-use serde::Serialize;
 use shared::Paper;
 use sqlx::sqlite::SqlitePool;
 
@@ -70,23 +72,7 @@ async fn main() -> Result<
         SqlitePool::connect(&db_url)
             .await?;
 
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS \
-         papers (
-            id TEXT PRIMARY KEY,
-            url TEXT,
-            title TEXT,
-            updated DATETIME,
-            published DATETIME,
-            summary TEXT,
-            primary_category TEXT,
-            categories TEXT,
-            authors TEXT,
-            pdf_link TEXT
-    )",
-    )
-    .execute(&pool)
-    .await?;
+    ensure_schema(&pool).await?;
 
     // 2. Fetch from arXiv
     // https://export.arxiv.org/api/query?search_query=submittedDate:[202401010600+TO+202401050600]
@@ -151,42 +137,46 @@ async fn main() -> Result<
         papers.len()
     );
 
-    // Start one transaction for all 2000 papers
-    let mut tx = pool.begin().await?;
+    if !papers.is_empty() {
 
-    for paper in papers {
+        // Bulk insert using a single query for better performance
+        let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link) "
+        );
 
-        sqlx::query(
-            "INSERT INTO papers (id, \
-             url, title, updated, \
-             published, summary, \
-             primary_category, \
-             categories, authors, \
-             pdf_link)
-        VALUES (?, ?, ?, ?, ?, ?, ?, \
-             ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-        updated = excluded.updated,
-        title = excluded.title,
-        summary = excluded.summary,
-        url = excluded.url",
-        )
-        .bind(&paper.id)
-        .bind(&paper.url)
-        .bind(&paper.title)
-        .bind(paper.updated)
-        .bind(paper.published)
-        .bind(&paper.summary)
-        .bind(&paper.primary_category)
-        .bind(&paper.categories)
-        .bind(&paper.authors)
-        .bind(&paper.pdf_link)
-        .execute(&mut *tx) // Execute inside the transaction
-        .await?;
+        query_builder.push_values(papers, |mut b, paper| {
+            b.push_bind(paper.id)
+                .push_bind(paper.url)
+                .push_bind(paper.title)
+                .push_bind(
+                    chrono::DateTime::from_timestamp(paper.updated, 0).unwrap_or_default()
+                )
+                .push_bind(
+                    chrono::DateTime::from_timestamp(paper.published, 0).unwrap_or_default()
+                )
+                .push_bind(paper.summary)
+                .push_bind(paper.primary_category)
+                .push_bind(paper.categories)
+                .push_bind(paper.authors)
+                .push_bind(paper.pdf_link);
+        });
+
+        query_builder.push(
+            " ON CONFLICT(id) DO \
+             UPDATE SET
+            updated = excluded.updated,
+            title = excluded.title,
+            summary = excluded.summary,
+            url = excluded.url",
+        );
+
+        let query =
+            query_builder.build();
+
+        query
+            .execute(&pool)
+            .await?;
     }
-
-    // Commit tells SQLite to actually save to the .db file
-    tx.commit().await?;
 
     println!(
         "Success! All papers saved."
@@ -301,4 +291,127 @@ fn transform_entry(
         .unwrap_or_default(),
         pdf_link,
     }
+}
+
+async fn ensure_schema(
+    pool: &SqlitePool
+) -> Result<
+    (),
+    Box<dyn std::error::Error>,
+> {
+
+    // Ensure table exists
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS \
+         papers (id TEXT PRIMARY KEY, \
+         url TEXT, title TEXT, \
+         updated DATETIME, published \
+         DATETIME, summary TEXT, \
+         primary_category TEXT, \
+         categories TEXT, authors \
+         TEXT, pdf_link TEXT)",
+    )
+    .execute(pool)
+    .await?;
+
+    // FTS5 Virtual Table for searching
+    sqlx::query(
+        "CREATE VIRTUAL TABLE IF NOT \
+         EXISTS papers_fts USING \
+         fts5(id UNINDEXED, title, \
+         summary, content='papers', \
+         content_rowid='rowid')",
+    )
+    .execute(pool)
+    .await?;
+
+    // Triggers to keep FTS5 in sync
+    sqlx::query(
+        "CREATE TRIGGER IF NOT EXISTS \
+         papers_ai AFTER INSERT ON \
+         papers BEGIN
+                  INSERT INTO \
+         papers_fts(rowid, id, title, \
+         summary) VALUES (new.rowid, \
+         new.id, new.title, \
+         new.summary);
+                END;",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TRIGGER IF NOT EXISTS \
+         papers_ad AFTER DELETE ON \
+         papers BEGIN
+                  INSERT INTO \
+         papers_fts(papers_fts, \
+         rowid, id, title, summary) \
+         VALUES('delete', old.rowid, \
+         old.id, old.title, \
+         old.summary);
+                END;",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE TRIGGER IF NOT EXISTS \
+         papers_au AFTER UPDATE ON \
+         papers BEGIN
+                  INSERT INTO \
+         papers_fts(papers_fts, \
+         rowid, id, title, summary) \
+         VALUES('delete', old.rowid, \
+         old.id, old.title, \
+         old.summary);
+                  INSERT INTO \
+         papers_fts(rowid, id, title, \
+         summary) VALUES (new.rowid, \
+         new.id, new.title, \
+         new.summary);
+                END;",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS \
+         idx_papers_published ON \
+         papers (published DESC)",
+    )
+    .execute(pool)
+    .await?;
+
+    sqlx::query(
+        "CREATE INDEX IF NOT EXISTS \
+         idx_papers_primary_category \
+         ON papers (primary_category)",
+    )
+    .execute(pool)
+    .await?;
+
+    // Initial population of FTS if empty
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM \
+         papers_fts",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap_or((0,));
+
+    if row.0 == 0 {
+
+        sqlx::query(
+            "INSERT INTO \
+             papers_fts(rowid, id, \
+             title, summary) SELECT \
+             rowid, id, title, \
+             summary FROM papers",
+        )
+        .execute(pool)
+        .await?;
+    }
+
+    Ok(())
 }
