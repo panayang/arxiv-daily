@@ -534,7 +534,7 @@ pub async fn fetch_new_articles(
 
     let client = reqwest::Client::new();
 
-    let mut retries = 5;
+    let retries = 5;
 
     let mut delay = tokio::time::Duration::from_secs(3);
 
@@ -728,10 +728,10 @@ pub async fn fetch_new_articles(
                 .push_bind(paper.url)
                 .push_bind(paper.title)
                 .push_bind(
-                    chrono::NaiveDateTime::from_timestamp_opt(paper.updated, 0).unwrap_or_default(),
+                    chrono::DateTime::from_timestamp(paper.updated, 0).unwrap_or_default(),
                 )
                 .push_bind(
-                    chrono::NaiveDateTime::from_timestamp_opt(paper.published, 0)
+                    chrono::DateTime::from_timestamp(paper.published, 0)
                         .unwrap_or_default(),
                 )
                 .push_bind(paper.summary)
