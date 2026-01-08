@@ -3,6 +3,7 @@
 #![allow(
     clippy::empty_line_after_outer_attr
 )]
+#![recursion_limit = "4096"]
 
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
