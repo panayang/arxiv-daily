@@ -1,5 +1,3 @@
-use std::env;
-
 use vergen_gitcl::BuildBuilder;
 use vergen_gitcl::CargoBuilder;
 use vergen_gitcl::Emitter;
@@ -11,8 +9,6 @@ fn main() -> Result<
     (),
     Box<dyn std::error::Error>,
 > {
-
-    const ENV_VAR_NAME: &str = "DEV";
 
     let mut emitter =
         Emitter::default();
