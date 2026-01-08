@@ -79,7 +79,6 @@
 #[tokio::main]
 
 async fn main() {
-
     use axum::Router;
     use axum::routing::post;
     use leptos::prelude::*;
@@ -88,11 +87,34 @@ async fn main() {
     use web_app::App;
     use web_app::shell;
 
-    let conf = get_configuration(None)
-        .unwrap();
+    use serde::Deserialize;
 
-    let leptos_options =
-        conf.leptos_options;
+    #[derive(Deserialize)]
+    struct ServerConfig {
+        ip: String,
+        port: u16,
+        site_root: String,
+    }
+
+    #[derive(Deserialize)]
+    struct Config {
+        server: Option<ServerConfig>,
+    }
+
+    let mut conf = get_configuration(None).unwrap();
+    
+    // Attempt to load override config
+    if let Ok(content) = std::fs::read_to_string("config.toml") {
+        if let Ok(config) = toml::from_str::<Config>(&content) {
+            if let Some(server) = config.server {
+                let addr_str = format!("{}:{}", server.ip, server.port);
+                conf.leptos_options.site_addr = addr_str.parse().unwrap_or(conf.leptos_options.site_addr);
+                conf.leptos_options.site_root = server.site_root.into();
+            }
+        }
+    }
+
+    let leptos_options = conf.leptos_options;
 
     let addr = leptos_options.site_addr;
 
@@ -124,13 +146,11 @@ async fn main() {
 
     #[cfg(not(debug_assertions))]
     {
-
         let url =
             format!("http://{}", addr);
 
         if let Err(e) = open::that(&url)
         {
-
             eprintln!(
                 "Failed to open \
                  browser: {}",

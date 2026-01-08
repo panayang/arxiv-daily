@@ -4,4 +4,9 @@ start = 0
 max_results = 2000
 
 [database]
-path = "/home/pana/dev/arxiv-daily/data/arxiv_daily.db"
+path = "/home/pana/dev/arxiv_daily_rust/data/arxiv_daily.db"
+[server]
+ip = "0.0.0.0"
+port = 8088
+site_root = "site"
+

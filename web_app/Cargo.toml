@@ -49,6 +49,8 @@ web-sys = { version = "0.3.83", features = [
     "ScrollBehavior",
 ] }
 open = { version = "5", optional = true }
+rust-embed = "8.9.0"
+mime_guess = "2.0.5"
 
 [features]
 default = ["ssr"]
@@ -114,7 +116,8 @@ reload-port = 8089
 # [Optional] The command to use when running cargo-leptos.
 # [Optional] The working directory of the frontend wasm-bindgen build.
 # [Optional] The directory to search for source files.
-# [Optional] The directory to search for asset files.
+# The directory to search for asset files.
+assets-dir = "public"
 # [Optional] The directory to search for wasm target files.
 # [Optional] The directory to search for binary target files.
 # [Optional] The directory where the binary will be built.

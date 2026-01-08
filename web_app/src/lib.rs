@@ -383,6 +383,8 @@ pub async fn get_config()
     Ok(content)
 }
 
+
+
 #[server(SaveConfig, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn save_config(
@@ -415,7 +417,6 @@ pub async fn save_config(
 }
 
 #[server(FetchNewArticles, "/api", input = Bitcode, output = Bitcode)]
-
 pub async fn fetch_new_articles(
     category: String,
     start_date: String,
@@ -1274,7 +1275,7 @@ fn Dashboard() -> impl IntoView {
             <header class="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-white/10 pb-10">
                 <div class="space-y-2">
                     <div class="flex items-center gap-3">
-                        <img src="/pkg/logo.svg" alt="arXiv Daily Logo" class="h-10 w-10 rounded-lg shadow-lg shadow-obsidian-accent/20" />
+                        <img src="/logo.svg" alt="arXiv Daily Logo" class="h-10 w-10 rounded-lg shadow-lg shadow-obsidian-accent/20" />
                         <h1 class="text-4xl font-extrabold text-obsidian-heading tracking-tighter">"arXiv" <span class="text-obsidian-accent">"Daily"</span></h1>
                     </div>
                     <p class="text-obsidian-text/50 font-medium ml-1">"Personalized research discovery platform"</p>
@@ -1706,6 +1707,14 @@ fn Pagination(
                         max=move || total_pages.get()
                         prop:value=move || current_page.get()
                         class="w-16 bg-white/5 border border-white/10 rounded-lg py-1 text-center font-bold text-obsidian-heading focus:outline-none focus:border-obsidian-accent/50 focus:ring-1 focus:ring-obsidian-accent/50 transition-all"
+                        on:input=move |ev| {
+                            let val = event_target_value(&ev);
+                            if let Ok(n) = val.parse::<usize>() {
+                                if n >= 1 && n <= total_pages.get() {
+                                    on_page_change.run(n);
+                                }
+                            }
+                        }
                         on:keydown=move |ev| {
                             if ev.key() == "Enter" {
                                 let val = event_target_value(&ev);

@@ -1,5 +1,5 @@
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-C", "link-arg=/STACK:17179869184"]
 
-[build]
+[target.'cfg(not(target_arch="wasm32"))']
 rustflags = ["-C", "target-cpu=native"]
