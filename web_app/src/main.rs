@@ -1,16 +1,26 @@
 #[cfg(feature = "ssr")]
 #[tokio::main]
+
 async fn main() {
+
     use axum::Router;
     use axum::routing::post;
     use leptos::prelude::*;
-    use leptos_axum::{LeptosRoutes, generate_route_list};
-    use web_app::{App, shell};
+    use leptos_axum::LeptosRoutes;
+    use leptos_axum::generate_route_list;
+    use web_app::App;
+    use web_app::shell;
 
-    let conf = get_configuration(None).unwrap();
-    let leptos_options = conf.leptos_options;
+    let conf = get_configuration(None)
+        .unwrap();
+
+    let leptos_options =
+        conf.leptos_options;
+
     let addr = leptos_options.site_addr;
-    let routes = generate_route_list(App);
+
+    let routes =
+        generate_route_list(App);
 
     // build our application with a route
     let app = Router::new()
@@ -23,12 +33,25 @@ async fn main() {
         .with_state(leptos_options);
 
     // run our app with hyper
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    println!("listening on http://{}", &addr);
-    axum::serve(listener, app).await.unwrap();
+    let listener =
+        tokio::net::TcpListener::bind(
+            &addr,
+        )
+        .await
+        .unwrap();
+
+    println!(
+        "listening on http://{}",
+        &addr
+    );
+
+    axum::serve(listener, app)
+        .await
+        .unwrap();
 }
 
 #[cfg(not(feature = "ssr"))]
+
 pub fn main() {
     // no-op for non-ssr builds
 }

@@ -18,3 +18,24 @@ shared = { path = "../shared" }
 [[bin]]
 name = "arxiv_daily"
 path = "src/main.rs"
+
+[build-dependencies]
+vergen = { version = "9", features = [
+    "build",
+    "cargo",
+    "cargo_metadata",
+    "emit_and_set",
+    "regex",
+    "rustc",
+    "rustc_version",
+    "si",
+    "sysinfo",
+    "time",
+] }
+vergen-gitcl = { version = "1", features = [
+    "build",
+    "cargo",
+    "emit_and_set",
+    "rustc",
+    "si",
+] }

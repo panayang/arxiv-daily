@@ -129,3 +129,24 @@ reload-port = 8089
 # [Optional] The directory where the final site pkg wasm will be written.
 # [Optional] The directory where the final site pkg wasm-bindgen will be written.
 # [Optional] The directory where the final site pkg artifacts will be written.
+
+[build-dependencies]
+vergen = { version = "9", features = [
+    "build",
+    "cargo",
+    "cargo_metadata",
+    "emit_and_set",
+    "regex",
+    "rustc",
+    "rustc_version",
+    "si",
+    "sysinfo",
+    "time",
+] }
+vergen-gitcl = { version = "1", features = [
+    "build",
+    "cargo",
+    "emit_and_set",
+    "rustc",
+    "si",
+] }
