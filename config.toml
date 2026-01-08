@@ -4,7 +4,7 @@ start = 0
 max_results = 2000
 
 [database]
-path = "../data/arxiv_daily.db"
+path = "./data/arxiv_daily.db"
 
 [server]
 ip = "0.0.0.0"
