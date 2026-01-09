@@ -3,3 +3,6 @@ rustflags = ["-C", "link-arg=/STACK:17179869184"]
 
 [target.'cfg(not(target_arch="wasm32"))']
 rustflags = ["-C", "target-cpu=native"]
+
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=2097152"]
