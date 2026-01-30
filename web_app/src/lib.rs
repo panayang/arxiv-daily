@@ -5,6 +5,9 @@
 )]
 #![recursion_limit = "4096"]
 
+#[cfg(feature = "ssr")]
+use std::sync::Arc;
+
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
 use leptos_meta::*;
@@ -12,6 +15,14 @@ use leptos_router::components::*;
 use leptos_router::*;
 use shared::Category;
 use shared::Paper;
+#[cfg(feature = "ssr")]
+use tokio::sync::OnceCell;
+
+#[cfg(feature = "ssr")]
+
+static MODEL: OnceCell<
+    Arc<kalosm::language::Llama>,
+> = OnceCell::const_new();
 
 #[server(GetPapers, "/api", input = Bitcode, output = Bitcode)]
 
@@ -22,6 +33,7 @@ pub async fn get_papers(
     end_date: String,
     page: usize,
     page_size: usize,
+    negative_query: String,
 ) -> Result<Vec<Paper>, ServerFnError> {
 
     use chrono::DateTime;
@@ -192,7 +204,7 @@ pub async fn get_papers(
     use rayon::prelude::*;
     use sqlx::Row;
 
-    let papers: Vec<Paper> = rows
+    let mut papers: Vec<Paper> = rows
         .into_par_iter()
         .map(|row| {
             let updated: DateTime<Utc> = row.try_get("updated").unwrap_or_else(|_| Utc::now());
@@ -216,6 +228,16 @@ pub async fn get_papers(
             }
         })
         .collect();
+
+    #[cfg(feature = "ssr")]
+    if !negative_query.is_empty() {
+
+        papers = filter_with_kalosm(
+            papers,
+            negative_query,
+        )
+        .await;
+    }
 
     Ok(papers)
 }
@@ -967,6 +989,119 @@ async fn get_db_path()
     Ok(config.database.path)
 }
 
+#[cfg(feature = "ssr")]
+
+async fn filter_with_kalosm(
+    papers: Vec<Paper>,
+    negative_query: String,
+) -> Vec<Paper> {
+
+    use std::path::PathBuf;
+
+    use kalosm::language::*;
+
+    if negative_query.is_empty()
+        || papers.is_empty()
+    {
+
+        return papers;
+    }
+
+    log::info!(
+        "AI filtering {} papers with \
+         negative filter: '{}'",
+        papers.len(),
+        negative_query
+    );
+
+    let model = MODEL.get_or_init(|| async {
+        let model_path = if std::path::Path::new("assets/gemma-270m.gguf").exists() {
+            "assets/gemma-270m.gguf".to_string()
+        } else if std::path::Path::new("../assets/gemma-270m.gguf").exists() {
+            "../assets/gemma-270m.gguf".to_string()
+        } else {
+            "assets/gemma-270m.gguf".to_string()
+        };
+
+        let tokenizer_path = if std::path::Path::new("assets/tokenizer.json").exists() {
+            "assets/tokenizer.json".to_string()
+        } else if std::path::Path::new("../assets/tokenizer.json").exists() {
+            "../assets/tokenizer.json".to_string()
+        } else {
+            "assets/tokenizer.json".to_string()
+        };
+
+        log::info!("Loading custom Gemma 3 model from {}...", model_path);
+
+        // LlamaSource::new takes a FileSource
+        let source = LlamaSource::new(FileSource::local(PathBuf::from(model_path)))
+            .with_tokenizer(FileSource::local(PathBuf::from(tokenizer_path)));
+
+        let m = Llama::builder()
+            .with_source(source)
+            .build()
+            .await
+            .expect("Failed to load Gemma 3 model from GGUF");
+        Arc::new(m)
+    }).await;
+
+    let mut filtered_papers =
+        Vec::new();
+
+    for paper in papers {
+
+        let prompt = format!(
+            "<|system|>You are a research paper filter. Your goal is to determine if a paper should be HIDDEN based on the user's negative criteria. Respond ONLY with 'YES' if it should be hidden, or 'NO' if it should be kept.<|endoftext|>\
+             <|user|>Criteria: Papers about \"{}\"\n\n\
+             Paper Title: {}\n\
+             Paper Summary: {}\n\n\
+             Should this paper be HIDDEN?<|endoftext|>\
+             <|assistant|>",
+            negative_query, paper.title, paper.summary
+        );
+
+        let response = match model
+            .complete(&prompt)
+            .await
+        {
+            | Ok(r) => r,
+            | Err(e) => {
+
+                log::error!(
+                    "AI completion \
+                     error: {}",
+                    e
+                );
+
+                filtered_papers
+                    .push(paper);
+
+                continue;
+            },
+        };
+
+        let response = response
+            .trim()
+            .to_uppercase();
+
+        let is_excluded =
+            response.contains("YES");
+
+        if !is_excluded {
+
+            filtered_papers.push(paper);
+        } else {
+
+            log::info!(
+                "AI Filtered out: {}",
+                paper.title
+            );
+        }
+    }
+
+    filtered_papers
+}
+
 pub fn shell(
     options: LeptosOptions
 ) -> impl IntoView {
@@ -1028,6 +1163,11 @@ fn Dashboard() -> impl IntoView {
         set_end_date_filter,
     ) = signal("".to_string());
 
+    let (
+        negative_query,
+        set_negative_query,
+    ) = signal("".to_string());
+
     let (page, set_page) =
         signal(1usize);
 
@@ -1044,6 +1184,7 @@ fn Dashboard() -> impl IntoView {
         date: String,
         end_date: String,
         page: usize,
+        negative_query: String,
     }
 
     let (
@@ -1055,6 +1196,7 @@ fn Dashboard() -> impl IntoView {
         date: "".to_string(),
         end_date: "".to_string(),
         page: 1,
+        negative_query: "".to_string(),
     });
 
     let papers = Resource::new(
@@ -1070,6 +1212,8 @@ fn Dashboard() -> impl IntoView {
                     params.end_date,
                     params.page,
                     51,
+                    params
+                        .negative_query,
                 )
                 .await
             }
@@ -1196,6 +1340,7 @@ fn Dashboard() -> impl IntoView {
                     date: start,
                     end_date: end,
                     page: 1,
+                    negative_query: "".to_string(),
                 });
 
                     set_page.set(1);
@@ -1219,6 +1364,7 @@ fn Dashboard() -> impl IntoView {
                     end_date_filter
                         .get(),
                 page: 1,
+                negative_query: negative_query.get(),
             },
         );
 
@@ -1250,6 +1396,8 @@ fn Dashboard() -> impl IntoView {
                 end_date: ""
                     .to_string(),
                 page: 1,
+                negative_query: ""
+                    .to_string(),
             },
         );
     };
@@ -1361,6 +1509,8 @@ fn Dashboard() -> impl IntoView {
                 on_edit_config=Callback::new(move |_| set_show_config.set(true))
                 end_date_filter=end_date_filter.into()
                 set_end_date_filter
+                negative_query=negative_query.into()
+                set_negative_query
             />
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
@@ -1763,6 +1913,10 @@ fn FilterBar(
     set_end_date_filter: WriteSignal<
         String,
     >,
+    negative_query: Signal<String>,
+    set_negative_query: WriteSignal<
+        String,
+    >,
     on_fetch: Callback<()>,
     fetch_pending: Signal<bool>,
     on_search: Callback<()>,
@@ -1916,6 +2070,24 @@ fn FilterBar(
                     on:input=move |ev| set_end_date_filter.set(event_target_value(&ev))
                     prop:value=end_date_filter
                 />
+            </div>
+
+            <div class="flex flex-col gap-1.5 min-w-[300px] flex-[2]">
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30 ml-1">"Negative AI Filter (What to hide)"</label>
+                <div class="relative group">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-4 w-4 text-obsidian-text/20 group-focus-within:text-red-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636l-12.728 12.728m0-12.728l12.728 12.728" />
+                        </svg>
+                    </div>
+                    <input
+                        type="text"
+                        placeholder="e.g. quantum computing, LLM benchmarks..."
+                        class="w-full bg-obsidian-bg border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500/40 transition-all placeholder:text-obsidian-text/20 shadow-inner"
+                        on:input=move |ev| set_negative_query.set(event_target_value(&ev))
+                        prop:value=negative_query
+                    />
+                </div>
             </div>
 
             <div class="hidden lg:block w-[1px] h-10 bg-white/5 mx-2"></div>
