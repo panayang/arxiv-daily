@@ -4,65 +4,71 @@ import subprocess
 from pathlib import Path
 
 def build_and_gather():
-    # Configuration
-    project_dir = "web_app"
-    release_dir = Path("release_assets")
+    # 1. Configuration
+    # Running from root, but cargo command runs inside web_app
+    root_dir = Path.cwd()
+    project_dir = root_dir / "web_app"
+    release_dir = root_dir / "release_assets"
     
-    # 1. Setup Environment Variables
-    # We copy the existing environment so we don't lose PATH, HOME, etc.
     env = os.environ.copy()
     env["LEPTOS_WASM_OPT_VERSION"] = "version_125"
     
-    # Files/Dirs to copy (Source Path relative to project_dir -> Destination Name)
-    to_copy = [
-        ("assets", "assets"),
-        ("data", "data"),
-        ("target/site", "site"),
-        (f"target/release/{project_dir}", project_dir),
-        ("config.toml", "config.toml")
+    # List of items to find. We will search project_dir and root_dir.
+    to_gather = [
+        "assets",
+        "data",
+        "target/site",
+        "target/release/web_app",
+        "config.toml"
     ]
 
-    print(f"🚀 Entering {project_dir} and starting build...")
-    print(f"🔹 Setting LEPTOS_WASM_OPT_VERSION={env['LEPTOS_WASM_OPT_VERSION']}")
+    print(f"🚀 Entering {project_dir.name} and starting build...")
     
     try:
-        # 2. Run cargo leptos build --release with the custom env
+        # 2. Run Build
         subprocess.run(
             ["cargo", "leptos", "build", "--release"], 
             cwd=project_dir, 
-            env=env,       # <--- Injects the version config here
+            env=env,
             check=True
         )
         print("✅ Build successful.")
 
-        # 3. Create/Clean release_assets folder
+        # 3. Fresh Start for Release Folder
         if release_dir.exists():
-            print(f"🧹 Cleaning existing {release_dir}...")
             shutil.rmtree(release_dir)
         release_dir.mkdir(parents=True, exist_ok=True)
 
-        # 4. Copy files
+        # 4. Smart Copy Logic
         print("📦 Gathering assets...")
-        for src_path, dest_name in to_copy:
-            # We assume project_dir is the base for these paths
-            full_src = Path(project_dir) / src_path
-            full_dest = release_dir / dest_name
+        for item in to_gather:
+            # Check project subfolder first, then root
+            possible_paths = [
+                project_dir / item,
+                root_dir / item
+            ]
+            
+            found = False
+            for path in possible_paths:
+                if path.exists():
+                    dest_path = release_dir / path.name
+                    if path.is_dir():
+                        shutil.copytree(path, dest_path)
+                    else:
+                        shutil.copy2(path, dest_path)
+                    print(f"  - [FOUND] {item} at {path.relative_to(root_dir)}")
+                    found = True
+                    break # Move to next item once found
+            
+            if not found:
+                print(f"  - ⚠️  [MISSING] {item} (checked subfolder and root)")
 
-            if full_src.exists():
-                if full_src.is_dir():
-                    shutil.copytree(full_src, full_dest)
-                else:
-                    shutil.copy2(full_src, full_dest)
-                print(f"  - Copied: {src_path}")
-            else:
-                print(f"  - ⚠️ Warning: {src_path} not found. Skipping.")
-
-        print(f"\n🎉 Release ready in: {release_dir.absolute()}")
+        print(f"\n🎉 Release ready in: {release_dir}")
 
     except subprocess.CalledProcessError as e:
-        print(f"❌ Error: Build failed with exit code {e.returncode}")
+        print(f"❌ Error: Build failed.")
     except Exception as e:
-        print(f"❌ An unexpected error occurred: {e}")
+        print(f"❌ Unexpected error: {e}")
 
 if __name__ == "__main__":
     build_and_gather()
