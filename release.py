@@ -8,7 +8,12 @@ def build_and_gather():
     project_dir = "web_app"
     release_dir = Path("release_assets")
     
-    # Files/Dirs to copy (Source -> Destination name)
+    # 1. Setup Environment Variables
+    # We copy the existing environment so we don't lose PATH, HOME, etc.
+    env = os.environ.copy()
+    env["LEPTOS_WASM_OPT_VERSION"] = "version_125"
+    
+    # Files/Dirs to copy (Source Path relative to project_dir -> Destination Name)
     to_copy = [
         ("assets", "assets"),
         ("data", "data"),
@@ -18,25 +23,28 @@ def build_and_gather():
     ]
 
     print(f"🚀 Entering {project_dir} and starting build...")
+    print(f"🔹 Setting LEPTOS_WASM_OPT_VERSION={env['LEPTOS_WASM_OPT_VERSION']}")
     
     try:
-        # 1. Run cargo leptos build --release
+        # 2. Run cargo leptos build --release with the custom env
         subprocess.run(
             ["cargo", "leptos", "build", "--release"], 
             cwd=project_dir, 
+            env=env,       # <--- Injects the version config here
             check=True
         )
         print("✅ Build successful.")
 
-        # 2. Create release_assets folder
+        # 3. Create/Clean release_assets folder
         if release_dir.exists():
             print(f"🧹 Cleaning existing {release_dir}...")
             shutil.rmtree(release_dir)
         release_dir.mkdir(parents=True, exist_ok=True)
 
-        # 3. Copy files
+        # 4. Copy files
         print("📦 Gathering assets...")
         for src_path, dest_name in to_copy:
+            # We assume project_dir is the base for these paths
             full_src = Path(project_dir) / src_path
             full_dest = release_dir / dest_name
 
