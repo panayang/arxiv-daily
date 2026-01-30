@@ -81,6 +81,8 @@ ssr = [
 crate-type = ["rlib", "cdylib"]
 
 [package.metadata.leptos]
+bin-target-triple = "aarch64-unknown-linux-gnu"
+bin-cargo-command = "cross"
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
 output-name = "web_app"
 # The site root folder is where cargo-leptos generate all files. Output: site-root/pkg/app.js/wasm
@@ -136,6 +138,8 @@ assets-dir = "public"
 # [Optional] The directory where the final site pkg wasm will be written.
 # [Optional] The directory where the final site pkg wasm-bindgen will be written.
 # [Optional] The directory where the final site pkg artifacts will be written.
+
+hash-files = false
 
 [build-dependencies]
 vergen = { version = "9", features = [
