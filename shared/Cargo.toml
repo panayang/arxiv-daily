@@ -22,7 +22,7 @@ vergen = { version = "9", features = [
     "sysinfo",
     "time",
 ] }
-vergen-gitcl = { version = "1", features = [
+vergen-gitcl = { version = "9", features = [
     "build",
     "cargo",
     "emit_and_set",

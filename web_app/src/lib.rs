@@ -1168,6 +1168,11 @@ fn Dashboard() -> impl IntoView {
         set_negative_query,
     ) = signal("".to_string());
 
+    let (
+        show_fetch_status,
+        set_show_fetch_status,
+    ) = signal(false);
+
     let (page, set_page) =
         signal(1usize);
 
@@ -1351,6 +1356,35 @@ fn Dashboard() -> impl IntoView {
         },
     );
 
+    Effect::new(move |_| {
+
+        let pending = fetch_action
+            .pending()
+            .get();
+
+        let value = fetch_action
+            .value()
+            .get();
+
+        if pending {
+
+            set_show_fetch_status
+                .set(true);
+        } else if value.is_some() {
+
+            set_timeout(
+                move || {
+                    set_show_fetch_status.set(false);
+                },
+                std::time::Duration::from_secs(4),
+            );
+        } else {
+
+            set_show_fetch_status
+                .set(false);
+        }
+    });
+
     let on_search = move |_| {
 
         set_trigger_search.set(
@@ -1456,7 +1490,7 @@ fn Dashboard() -> impl IntoView {
                 let value = fetch_action.value();
 
                 view! {
-                    <Show when=move || pending.get() || value.get().is_some()>
+                    <Show when=move || show_fetch_status.get()>
                         <div class="fixed top-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4 duration-300">
                             <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl px-6 py-3 shadow-2xl flex items-center gap-4">
                                 <Show
@@ -2010,6 +2044,12 @@ fn FilterBar(
                                     class="w-full bg-obsidian-bg border border-white/5 rounded-lg px-3 py-2 text-xs text-obsidian-heading focus:outline-none focus:ring-1 focus:ring-obsidian-accent/40 placeholder:text-obsidian-text/20"
                                     on:input=move |ev| set_category_search.set(event_target_value(&ev))
                                     on:click=move |ev| ev.stop_propagation()
+                                    on:keydown=move |ev| {
+                                        if ev.key() == "Enter" {
+                                            on_search.run(());
+                                            set_is_open.set(false);
+                                        }
+                                    }
                                     prop:value=category_search
                                 />
                             </div>
@@ -2058,6 +2098,11 @@ fn FilterBar(
                     type="date"
                     class="bg-obsidian-bg border border-white/10 rounded-xl px-4 py-2 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-obsidian-accent/40"
                     on:input=move |ev| set_date_filter.set(event_target_value(&ev))
+                    on:keydown=move |ev| {
+                        if ev.key() == "Enter" {
+                            on_search.run(());
+                        }
+                    }
                     prop:value=date_filter
                 />
             </div>
@@ -2068,6 +2113,11 @@ fn FilterBar(
                     type="date"
                     class="bg-obsidian-bg border border-white/10 rounded-xl px-4 py-2 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-obsidian-accent/40"
                     on:input=move |ev| set_end_date_filter.set(event_target_value(&ev))
+                    on:keydown=move |ev| {
+                        if ev.key() == "Enter" {
+                            on_search.run(());
+                        }
+                    }
                     prop:value=end_date_filter
                 />
             </div>
@@ -2085,6 +2135,11 @@ fn FilterBar(
                         placeholder="e.g. quantum computing, LLM benchmarks..."
                         class="w-full bg-obsidian-bg border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500/40 transition-all placeholder:text-obsidian-text/20 shadow-inner"
                         on:input=move |ev| set_negative_query.set(event_target_value(&ev))
+                        on:keydown=move |ev| {
+                            if ev.key() == "Enter" {
+                                on_search.run(());
+                            }
+                        }
                         prop:value=negative_query
                     />
                 </div>
