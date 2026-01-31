@@ -95,7 +95,7 @@ async fn main() {
 
         println!(
             "Version: {}",
-            env!("VERGEN_BUILD_SEMVER")
+            env!("CARGO_PKG_VERSION")
         );
 
         println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use simd_json::prelude::*;
 use vergen_gitcl::BuildBuilder;
 use vergen_gitcl::CargoBuilder;
 use vergen_gitcl::Emitter;
@@ -89,8 +90,22 @@ fn main() -> Result<
             tokenizer_json_path
         );
 
-        let tokenizer_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&tokenizer_json_path)?)
-            .map_err(|e| format!("Failed to parse tokenizer JSON: {}", e))?;
+        // let tokenizer_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&tokenizer_json_path)?)
+        //     .map_err(|e| format!("Failed to parse tokenizer JSON: {}", e))?;
+
+        let mut bytes = std::fs::read(
+            &tokenizer_json_path,
+        )
+        .map_err(|e| {
+            format!(
+                "Failed to read file: \
+                 {}",
+                e
+            )
+        })?;
+
+        let tokenizer_json: serde_json::Value = simd_json::from_slice(&mut bytes)
+            .map_err(|e| format!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
 
         let config = bincode_next::config::legacy();
 

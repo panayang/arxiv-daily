@@ -61,6 +61,7 @@ mistralrs = { version = "0.7", optional = true }
 rssn = { version = "0.2", features = ["full"], optional = true }
 bincode-next = { version = "2.0", features = ["serde"] }
 clap = { version = "4.5", features = ["env"], optional = true }
+simd-json = { version = "0.17", optional = true }
 
 [features]
 default = ["ssr"]
@@ -93,6 +94,7 @@ ssr = [
     "dep:rssn",
     "dep:tokenizers",
     "dep:clap",
+    "dep:simd-json",
 ]
 
 [lib]
@@ -159,6 +161,7 @@ assets-dir = "public"
 bincode-next = { version = "2.0", features = ["serde"] }
 tokenizers = { version = "0.22" }
 serde_json = "1.0"
+simd-json = "0.17"
 vergen = { version = "9", features = [
     "build",
     "cargo",

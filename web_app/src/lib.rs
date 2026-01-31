@@ -475,7 +475,7 @@ pub async fn get_version_info()
 
     Ok(VersionInfo {
         build_semver: env!(
-            "VERGEN_BUILD_SEMVER"
+            "CARGO_PKG_VERSION"
         )
         .to_string(),
         build_timestamp: env!(
@@ -2585,7 +2585,13 @@ pub fn AboutModal(
     }
 }
 
+#[cfg(feature = "hydrate")]
+#[wasm_bindgen::prelude::wasm_bindgen]
+
 pub fn hydrate() {
+
+    use console_error_panic_hook;
+    use console_log;
 
     _ = console_log::init_with_level(
         log::Level::Debug,
