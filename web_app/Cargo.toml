@@ -1,6 +1,6 @@
 [package]
 name = "web_app"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 
 [dependencies]
@@ -62,6 +62,11 @@ rssn = { version = "0.2", features = ["full"], optional = true }
 bincode-next = { version = "2.0", features = ["serde"] }
 clap = { version = "4.5", features = ["env"], optional = true }
 simd-json = { version = "0.17", optional = true }
+pulp = { version = "0.22", features = [
+    "macro",
+    "x86-v4",
+    "nightly",
+], optional = true }
 
 [features]
 default = ["ssr"]
@@ -95,6 +100,7 @@ ssr = [
     "dep:tokenizers",
     "dep:clap",
     "dep:simd-json",
+    "dep:pulp",
 ]
 
 [lib]

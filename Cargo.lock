@@ -8474,7 +8474,7 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scraper"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "chrono",
  "feed-rs",
@@ -8932,7 +8932,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "bitcode",
  "chrono",
@@ -11140,7 +11140,7 @@ dependencies = [
 
 [[package]]
 name = "web_app"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -11165,6 +11165,7 @@ dependencies = [
  "mime_guess",
  "mistralrs",
  "open",
+ "pulp 0.22.2",
  "rayon",
  "reqwest 0.13.1",
  "rssn",
