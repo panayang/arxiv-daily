@@ -67,11 +67,7 @@ tokenizers = { version = "0.22", optional = true }
 mistralrs = { version = "0.7", optional = true }
 rssn = { version = "0.2", features = ["full"], optional = true }
 bincode-next = { version = "2.0", features = ["serde"] }
-clap = { version = "4.5", features = [
-    "cargo",
-    "derive",
-    "env",
-], optional = true }
+clap = { version = "4.5", features = ["cargo", "derive", "env"] }
 memmap2 = "0.9"
 simd-json = { version = "0.17", optional = true }
 pulp = { version = "0.22", features = [
@@ -81,6 +77,8 @@ pulp = { version = "0.22", features = [
 ], optional = true }
 leptos_workers = { version = "0.3", features = ["ssr"] }
 wgpu = "28.0"
+regex = "1.10"
+latex2mathml = "0.2"
 
 [features]
 default = ["ssr"]
@@ -112,7 +110,6 @@ ssr = [
     "dep:mistralrs",
     "dep:rssn",
     "dep:tokenizers",
-    "dep:clap",
     "dep:simd-json",
     "dep:pulp",
 ]
@@ -121,61 +118,17 @@ ssr = [
 crate-type = ["rlib", "cdylib"]
 
 [package.metadata.leptos]
-# The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
 output-name = "web_app"
-# The site root folder is where cargo-leptos generate all files. Output: site-root/pkg/app.js/wasm
 site-root = "target/site"
-# The site-root relative folder where all compiled output (JS, WASM and CSS) is written
-# Defaults to pkg
 site-pkg-dir = "pkg"
-# [Optional] The source CSS file. If it ends with .sass or .scss then it will be compiled by dart-sass into main.css
 style-file = "style/tailwind.css"
-# [Optional] The tailwind input file.
 tailwind-input-file = "style/tailwind.css"
-# [Optional] The tailwind config file.
 tailwind-config-file = "tailwind.config.js"
-
-# The features to use when compiling the bin target
-#
-# Optional. Can be over-ridden with the command line parameter --bin-features
-bin-features = ["ssr"]
-
-# If the total project is a library, the features to use when compiling the lib target
-#
-# Optional. Can be over-ridden with the command line parameter --lib-features
-lib-features = ["hydrate"]
-
-# The IP and port (eg: 127.0.0.1:8088) where the server serves the content. Use it in your server setup.
-site-addr = "0.0.0.0:8088"
-# The port to use for automatic reload monitoring
 reload-port = 8089
-# [Optional] Command to use when running end2end tests. It will run in the end2end-dir.
-# [Optional] The browser to use for end2end tests, either 'firefox', 'chrome' or 'safari'.
-# [Optional] If the site-root and site-pkg-dir should be cleaned before building.
-# [Optional] The environment to use when running cargo-leptos.
-# [Optional] The command to use when running cargo-leptos.
-# [Optional] The working directory of the frontend wasm-bindgen build.
-# [Optional] The directory to search for source files.
-# The directory to search for asset files.
 assets-dir = "public"
-# [Optional] The directory to search for wasm target files.
-# [Optional] The directory to search for binary target files.
-# [Optional] The directory where the binary will be built.
-# [Optional] The directory where the wasm will be built.
-# [Optional] The directory where the wasm-bindgen output will be written.
-# [Optional] The directory where the final binary will be written.
-# [Optional] The directory where the final wasm will be written.
-# [Optional] The directory where the final assets will be written.
-# [Optional] The directory where the final styles will be written.
-# [Optional] The directory where the final site files will be written.
-# [Optional] The directory where the final site static files will be written.
-# [Optional] The directory where the final site pkg files will be written.
-# [Optional] The directory where the final site pkg assets will be written.
-# [Optional] The directory where the final site pkg styles will be written.
-# [Optional] The directory where the final site pkg scripts will be written.
-# [Optional] The directory where the final site pkg wasm will be written.
-# [Optional] The directory where the final site pkg wasm-bindgen will be written.
-# [Optional] The directory where the final site pkg artifacts will be written.
+bin-features = ["ssr"]
+lib-features = ["hydrate"]
+site-addr = "0.0.0.0:8088"
 
 [build-dependencies]
 bincode-next = { version = "2.0", features = ["serde"] }

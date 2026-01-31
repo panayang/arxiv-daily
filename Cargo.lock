@@ -5197,6 +5197,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "latex2mathml"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678cf5bdb3ba63a264e6e0c9eee36538ca1d2da0afa4dd801c1f96309e710765"
+
+[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11697,6 +11703,7 @@ dependencies = [
  "futures-util",
  "http 1.4.0",
  "kalosm",
+ "latex2mathml",
  "leptos",
  "leptos_axum",
  "leptos_meta",
@@ -11709,6 +11716,7 @@ dependencies = [
  "open",
  "pulp 0.22.2",
  "rayon",
+ "regex",
  "reqwest 0.13.1",
  "rssn",
  "rust-embed",

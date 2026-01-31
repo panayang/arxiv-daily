@@ -7,14 +7,18 @@
 
 #[cfg(feature = "ssr")]
 use std::sync::Arc;
+use std::sync::LazyLock;
 
 use bitcode::Decode;
 use bitcode::Encode;
+use latex2mathml::DisplayStyle;
+use latex2mathml::latex_to_mathml;
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
 use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::*;
+use regex::Regex;
 use serde::Deserialize;
 use serde::Serialize;
 use shared::Category;
@@ -482,8 +486,6 @@ pub struct VersionInfo {
     pub cpu_cores: String,
     pub total_memory: String,
 }
-
-use std::sync::LazyLock;
 
 pub static REPOSITORY: LazyLock<
     String,
@@ -1098,6 +1100,399 @@ pub async fn unload_model()
     *model = None;
 
     Ok(())
+}
+
+fn html_escape(text: &str) -> String {
+
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn fix_latex_symbols(
+    latex: &str
+) -> String {
+
+    latex
+        .replace(r"\,", " ") // Handle LaTeX small space
+        .replace(r"\le", r"\leq") // Normalize inequalities
+        .replace(r"\ge", r"\geq")
+        .replace(r"\ast", "*") // Handle asterisk
+        .replace(r"\star", "*")
+        .replace(r"\mathcal", "") // Strip unsupported font commands
+        .replace(r"\cal", "")
+        .replace(r"\mathrm", "")
+        .replace(r"\mathfrak", "")
+        .replace(r"\mathbb", "")
+        .replace(r"\mathsf", "")
+        .replace(r"\mathtt", "")
+        .replace(r"\rm", "")
+        .replace(r"\it", "")
+        .replace(r"\bf", "")
+        .replace(r"\sf", "")
+        .replace(r"\tt", "")
+        .replace(r"\AA", "A")
+        .replace(r"\BB", "B")
+        .replace(r"\CC", "C")
+        .replace(r"\DD", "D")
+        .replace(r"\EE", "E")
+        .replace(r"\FF", "F")
+        .replace(r"\GG", "G")
+        .replace(r"\HH", "H")
+        .replace(r"\II", "I")
+        .replace(r"\JJ", "J")
+        .replace(r"\KK", "K")
+        .replace(r"\LL", "L")
+        .replace(r"\MM", "M")
+        .replace(r"\NN", "N")
+        .replace(r"\OO", "O")
+        .replace(r"\PP", "P")
+        .replace(r"\QQ", "Q")
+        .replace(r"\RR", "R")
+        .replace(r"\SS", "S")
+        .replace(r"\TT", "T")
+        .replace(r"\UU", "U")
+        .replace(r"\VV", "V")
+        .replace(r"\WW", "W")
+        .replace(r"\XX", "X")
+        .replace(r"\YY", "Y")
+        .replace(r"\ZZ", "Z")
+        .replace(r"\mathbf", r"\vec") // Fallback for bold vector if needed, or keeping it
+        .replace('Γ', r"\Gamma")
+        .replace('Δ', r"\Delta")
+        .replace('Θ', r"\Theta")
+        .replace('Λ', r"\Lambda")
+        .replace('Ξ', r"\Xi")
+        .replace('Π', r"\Pi")
+        .replace('Σ', r"\Sigma")
+        .replace('Φ', r"\Phi")
+        .replace('Ψ', r"\Psi")
+        .replace('Ω', r"\Omega")
+        .replace('α', r"\alpha")
+        .replace('β', r"\beta")
+        .replace('γ', r"\gamma")
+        .replace('δ', r"\delta")
+        .replace('ε', r"\epsilon")
+        .replace('ζ', r"\zeta")
+        .replace('η', r"\eta")
+        .replace('θ', r"\theta")
+        .replace('ι', r"\iota")
+        .replace('κ', r"\kappa")
+        .replace('λ', r"\lambda")
+        .replace('μ', r"\mu")
+        .replace('ν', r"\nu")
+        .replace('ξ', r"\xi")
+        .replace('π', r"\pi")
+        .replace('ρ', r"\rho")
+        .replace('σ', r"\sigma")
+        .replace('τ', r"\tau")
+        .replace('υ', r"\upsilon")
+        .replace('φ', r"\phi")
+        .replace('χ', r"\chi")
+        .replace('ψ', r"\psi")
+        .replace('ω', r"\omega")
+        .replace('≡', r"\equiv")
+        .replace('±', r"\pm")
+        .replace('×', r"\times")
+        .replace('÷', r"\div")
+        .replace('≈', r"\approx")
+        .replace('≠', r"\neq")
+        .replace('≤', r"\leq")
+        .replace('≥', r"\geq")
+        .replace('≦', r"\leq")
+        .replace('≧', r"\geq")
+        .replace('≃', r"\simeq")
+        .replace('⋯', r"\cdots")
+        .replace('…', r"\dots")
+        .replace('∞', r"\infty")
+        .replace('→', r"\to")
+        .replace('∂', r"\partial")
+        .replace('∇', r"\nabla")
+}
+
+fn try_latex_to_mathml(
+    latex: &str,
+    style: DisplayStyle,
+) -> String {
+
+    let mut current_latex =
+        latex.to_string();
+
+    for _ in 0 .. 15 {
+
+        let result = latex_to_mathml(
+            &current_latex,
+            style,
+        );
+
+        // Handle successful result but check if it contains embedded error messages
+        if let Ok(ref mathml) = result {
+
+            if !mathml
+                .contains("PARSE ERROR")
+                && !mathml.contains(
+                    "Undefined",
+                )
+            {
+
+                return mathml
+                    .to_string();
+            }
+            // If it contains an error message, treat it as an error and try to fix it
+        }
+
+        let err_str = match result {
+            | Ok(ref s) => s.clone(),
+            | Err(ref e) => {
+                format!("{:?}", e)
+            },
+        };
+
+        // 1. Extract command name from Undefined("Command(\"name\")") or PARSE ERROR blocks
+        if let Some(pos) =
+            err_str.find("Command(\"")
+        {
+
+            let cmd_part =
+                &err_str[pos + 9 ..];
+
+            let end = cmd_part
+                .find("\\\"")
+                .or_else(|| {
+                    cmd_part.find("\")")
+                });
+
+            if let Some(end_idx) = end {
+
+                let cmd = &cmd_part
+                    [.. end_idx];
+
+                if !cmd.is_empty() {
+
+                    let to_replace = format!(
+                        "\\{}",
+                        cmd
+                    );
+
+                    let next =
+                        current_latex
+                            .replace(
+                            &to_replace,
+                            "",
+                        );
+
+                    if next
+                        != current_latex
+                    {
+
+                        current_latex =
+                            next;
+
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // 2. Specialized symbol/structural errors
+        if err_str
+            .contains("Circumflex")
+            || err_str
+                .contains("Circumflex")
+        {
+
+            let next = current_latex
+                .replace('^', "");
+
+            if next != current_latex {
+
+                current_latex = next;
+
+                continue;
+            }
+        }
+
+        if err_str
+            .contains("Underscore")
+        {
+
+            let next = current_latex
+                .replace('_', "");
+
+            if next != current_latex {
+
+                current_latex = next;
+
+                continue;
+            }
+        }
+
+        // 3. General Undefined fallback
+        if let Some(pos) =
+            err_str.find("Undefined(\"")
+        {
+
+            let sym_part =
+                &err_str[pos + 11 ..];
+
+            if let Some(end) =
+                sym_part.find("\")")
+            {
+
+                let sym =
+                    &sym_part[.. end];
+
+                if !sym.is_empty() {
+
+                    let to_replace = format!(
+                        "\\{}",
+                        sym
+                    );
+
+                    let next =
+                        current_latex
+                            .replace(
+                            &to_replace,
+                            "",
+                        );
+
+                    if next
+                        != current_latex
+                    {
+
+                        current_latex =
+                            next;
+
+                        continue;
+                    }
+                }
+            }
+        }
+
+        // 4. Force strip any remaining backslashed words if we're stuck
+        // This is a "nuclear option" for unknown commands
+        if let Some(pos) =
+            current_latex.find('\\')
+        {
+
+            let after_slash =
+                &current_latex
+                    [pos + 1 ..];
+
+            let end = after_slash
+                .find(|c: char| {
+                    !c.is_alphabetic()
+                })
+                .unwrap_or(
+                    after_slash.len(),
+                );
+
+            if end > 0 {
+
+                let to_remove = format!(
+                    "\\{}",
+                    &after_slash
+                        [.. end]
+                );
+
+                current_latex =
+                    current_latex
+                        .replace(
+                            &to_remove,
+                            "",
+                        );
+
+                continue;
+            }
+        }
+
+        break;
+    }
+
+    // Final Fallback: Display the original source
+    let delimiter = match style {
+        | DisplayStyle::Block => "$$",
+        | DisplayStyle::Inline => "$",
+    };
+
+    format!(
+        "{}{}{}",
+        delimiter,
+        html_escape(latex),
+        delimiter
+    )
+}
+
+pub fn render_math(
+    text: &str
+) -> String {
+
+    static MATH_DISPLAY: LazyLock<
+        Regex,
+    > = LazyLock::new(|| {
+        Regex::new(r"(?s)\$\$(.*?)\$\$")
+            .unwrap()
+    });
+
+    static MATH_INLINE: LazyLock<
+        Regex,
+    > = LazyLock::new(|| {
+        Regex::new(r"(?s)\$(.*?)\$")
+            .unwrap()
+    });
+
+    // Placeholder system for hybrid text/MathML
+    let mut placeholders = Vec::new();
+
+    let mut result = text.to_string();
+
+    // 1. Display math
+    result = MATH_DISPLAY
+        .replace_all(&result, |caps: &regex::Captures| {
+            let latex = fix_latex_symbols(caps[1].trim());
+            let rendered = try_latex_to_mathml(&latex, DisplayStyle::Block);
+            let idx = placeholders.len();
+            placeholders.push(rendered);
+            format!("__MATH_P_{}__", idx)
+        })
+        .to_string();
+
+    // 2. Inline math
+    result = MATH_INLINE
+        .replace_all(&result, |caps: &regex::Captures| {
+            let latex = fix_latex_symbols(caps[1].trim());
+            let rendered = try_latex_to_mathml(&latex, DisplayStyle::Inline);
+            let idx = placeholders.len();
+            placeholders.push(rendered);
+            format!("__MATH_P_{}__", idx)
+        })
+        .to_string();
+
+    // 3. Escape skeleton
+    let mut final_result =
+        html_escape(&result);
+
+    // 4. Re-inject
+    for (idx, rendered) in placeholders
+        .into_iter()
+        .enumerate()
+    {
+
+        let placeholder = format!(
+            "__MATH_P_{}__",
+            idx
+        );
+
+        final_result = final_result
+            .replace(
+                &placeholder,
+                &rendered,
+            );
+    }
+
+    final_result
 }
 
 #[cfg(feature = "ssr")]
@@ -1965,15 +2360,18 @@ fn PaperCard(
                 <span class="inline-flex items-center px-3 py-1 rounded-md text-[10px] font-black bg-obsidian-accent/10 text-obsidian-accent border border-obsidian-accent/10 uppercase tracking-widest">
                     {category_name}
                 </span>
-                <span class="text-[10px] uppercase tracking-widest text-obsidian-text/30 font-bold">
+                <span class="text-[10px] uppercase tracking-widest text-obsidian-text/30 font-bold ml-2">
                     {published_str}
                 </span>
             </div>
 
             <h3 class="text-xl font-bold text-obsidian-heading leading-tight group-hover:text-obsidian-accent transition-colors mb-2">
-                <a href=url.clone() target="_blank" class="hover:underline decoration-obsidian-accent/30 underline-offset-4">
-                    {title}
-                </a>
+                <a
+                    href=url.clone()
+                    target="_blank"
+                    class="hover:underline decoration-obsidian-accent/30 underline-offset-4"
+                    inner_html=move || render_math(&title)
+                ></a>
             </h3>
 
             <p class="text-xs text-obsidian-text/40 font-medium mb-6 line-clamp-1 italic group-hover:text-obsidian-text/60 transition-colors">
@@ -1981,9 +2379,13 @@ fn PaperCard(
             </p>
 
             <div class="relative flex-grow">
-                <div class=move || format!("text-sm leading-relaxed text-obsidian-text/70 transition-all duration-500 {}", if expanded.get() { "" } else { "line-clamp-4 overflow-hidden" })>
-                    {summary.clone()}
-                </div>
+                <div
+                    class=move || format!("text-sm leading-relaxed text-obsidian-text/70 transition-all duration-500 {}", if expanded.get() { "" } else { "line-clamp-4 overflow-hidden" })
+                    inner_html={
+                        let value = summary.clone();
+                        move || render_math(&value)
+                    }
+                ></div>
                 {move || if !expanded.get() && summary.len() > 180 {
                     view! {
                         <button
