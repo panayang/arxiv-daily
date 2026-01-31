@@ -71,7 +71,7 @@ impl RmsNorm {
     fn new(weight: Tensor, eps: f64) -> Self {
         let mean = weight.mean_all().unwrap().to_scalar::<f32>().unwrap();
         let max = weight.max_all().unwrap().to_scalar::<f32>().unwrap();
-        println!("      DEBUG RmsNorm: mean={:.4}, max={:.4}", mean, max);
+        // println!("      DEBUG RmsNorm: mean={:.4}, max={:.4}", mean, max);
         Self { weight, eps }
     }
 
@@ -268,20 +268,20 @@ pub struct Model {
 #[cfg(feature = "ssr")]
 impl Model {
     pub fn from_gguf<P: AsRef<Path>>(path: P, device: &Device) -> anyhow::Result<Self> {
-        println!("🔍 Loading GGUF from {:?}", path.as_ref());
+        // println!("🔍 Loading GGUF from {:?}", path.as_ref());
         let mut file = std::fs::File::open(path)?;
         let mut content = gguf_file::Content::read(&mut file)?;
         
-        println!("📝 GGUF Keys:");
+        // println!("📝 GGUF Keys:");
         for key in content.tensor_infos.keys() {
             if key.contains("blk.0") || !key.contains("blk.") {
-                println!("  {}", key);
+                // println!("  {}", key);
             }
         }
         
         let cfg = Config::gemma3_270m();
         
-        println!("🧠 Initializing Model with Config: {:?}", cfg);
+        // println!("🧠 Initializing Model with Config: {:?}", cfg);
         
         let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
         
@@ -351,7 +351,7 @@ impl Model {
                 ffn_norm,
                 post_ffn_norm,
             });
-            println!("  Layer {} loaded", i);
+            // println!("  Layer {} loaded", i);
         }
         
         let norm_w = content.tensor(&mut file, "output_norm.weight", device)?.dequantize(device)?;
@@ -360,14 +360,14 @@ impl Model {
         let lm_head_weight = if content.tensor_infos.contains_key("output.weight") {
             content.tensor(&mut file, "output.weight", device)?
         } else if content.tensor_infos.contains_key("token_embd.weight") {
-            println!("💡 Weight tying detected: using token_embd.weight for output.weight");
+            // println!("💡 Weight tying detected: using token_embd.weight for output.weight");
             content.tensor(&mut file, "token_embd.weight", device)?
         } else {
             anyhow::bail!("Could not find output.weight or token_embd.weight in GGUF");
         };
         let lm_head = QLinear::new(lm_head_weight)?;
         
-        println!("✨ Model loading complete.");
+        // println!("✨ Model loading complete.");
         
         Ok(Self {
             embed_tokens,
@@ -404,7 +404,7 @@ impl Model {
         // Log raw max logit for debugging
         if seq_len > 1 {
            let raw_max = logits.to_dtype(DType::F32)?.max_all()?.to_scalar::<f32>()?;
-           println!("    RAW MAX LOGIT: {:.2}", raw_max);
+           // println!("    RAW MAX LOGIT: {:.2}", raw_max);
         }
         
         Ok(logits)
@@ -455,7 +455,7 @@ impl Gemma3 {
         let mut tokens_vec = tokens.get_ids().to_vec();
         let mut generated = String::new();
         
-        println!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
+        // println!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
         
         for i in 0..max_tokens {
             let context_size = if i == 0 { tokens_vec.len() } else { 1 };
@@ -472,10 +472,10 @@ impl Gemma3 {
             
             if i % 1 == 0 {
                 let token_text = self.tokenizer.decode(&[next_token], true).unwrap_or_default();
-                println!(
-                    "    DEBUG: Step {:2}, Token: {} ({}), Max Logit: {:.2}", 
-                    i, next_token, token_text.replace("\n", "\\n"), max_logit
-                );
+                // println!(
+                //     "    DEBUG: Step {:2}, Token: {} ({}), Max Logit: {:.2}", 
+                //     i, next_token, token_text.replace("\n", "\\n"), max_logit
+                // );
             }
             
             tokens_vec.push(next_token);
@@ -487,23 +487,23 @@ impl Gemma3 {
                 break;
             }
         }
-        println!("🏁 Generation complete.");
+        // println!("🏁 Generation complete.");
         Ok(generated)
     }
 
     pub fn self_test(&mut self) -> anyhow::Result<()> {
-        println!("🧪 Running AI Self-Test (Checking if model can say 'YES')...");
+        // println!("🧪 Running AI Self-Test (Checking if model can say 'YES')...");
         // More standard prompt for Gemma models
         let res = self.complete("<start_of_turn>user\nAnswer with ONLY the word YES: Is 1+1=2?<end_of_turn>\n<start_of_turn>model\n", 5)?;
-        println!("  Test Result: '{}'", res);
+        // println!("  Test Result: '{}'", res);
         
         // Very lenient check since it's a tiny model
         let upper = res.to_uppercase();
         if upper.contains("YES") || upper.contains("NO") {
-             println!("✅ Self-test passed (Found '{}').", upper.trim());
+             // println!("✅ Self-test passed (Found '{}').", upper.trim());
              Ok(())
         } else if !res.trim().is_empty() {
-             println!("⚠️ Self-test produced non-YES/NO output: '{}'. Proceeding anyway.", res.trim());
+             // println!("⚠️ Self-test produced non-YES/NO output: '{}'. Proceeding anyway.", res.trim());
              Ok(())
         } else {
              Err(anyhow::anyhow!("Self-test failed: No tokens generated"))
