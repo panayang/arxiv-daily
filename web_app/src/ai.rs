@@ -1,3 +1,8 @@
+// We think that clarity is more important in this submodule.
+#![allow(unused)]
+
+/// This is the LLM functionality module of arxiv-daily. It provides self-written functionalities using candle to load and run gemma 3 270m IT Q5 K_M QAT model.
+
 #[cfg(feature = "ssr")]
 use std::path::Path;
 #[cfg(feature = "ssr")]
@@ -105,19 +110,6 @@ impl RmsNorm {
         eps: f64,
     ) -> Self {
 
-        let mean = weight
-            .mean_all()
-            .unwrap()
-            .to_scalar::<f32>()
-            .unwrap();
-
-        let max = weight
-            .max_all()
-            .unwrap()
-            .to_scalar::<f32>()
-            .unwrap();
-
-        // println!("      DEBUG RmsNorm: mean={:.4}, max={:.4}", mean, max);
         Self {
             weight,
             eps,
@@ -534,7 +526,7 @@ impl DecoderLayer {
             .post_ffn_norm
             .forward(&x)?;
 
-        (x + residual)
+        x + residual
     }
 }
 
@@ -562,7 +554,7 @@ impl Model {
         let mut file =
             std::fs::File::open(path)?;
 
-        let mut content =
+        let content =
             gguf_file::Content::read(
                 &mut file,
             )?;
@@ -846,19 +838,16 @@ impl Model {
             .narrow(1, seq_len - 1, 1)?
             .apply(&self.norm)?;
 
-        let logits = xs.apply(
+        let mut logits = xs.apply(
             &self.lm_head.inner,
         )?;
 
-        // Log raw max logit for debugging
-        if seq_len > 1 {
+        // Correct Gemma 3 Logit Soft-Capping: tanh(logits / cap) * cap
+        let cap = 30.0;
 
-            let raw_max = logits
-                .to_dtype(DType::F32)?
-                .max_all()?
-                .to_scalar::<f32>()?;
-            // println!("    RAW MAX LOGIT: {:.2}", raw_max);
-        }
+        logits = ((logits / cap)?
+            .tanh()?
+            * cap)?;
 
         Ok(logits)
     }

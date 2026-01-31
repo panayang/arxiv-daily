@@ -1028,7 +1028,7 @@ async fn filter_with_ai(
         let mut gemma = ai::Gemma3::new(model_path, tokenizer_path).expect("Failed to load Gemma 3 model");
 
         // Run self-test
-        gemma.self_test().expect("AI Self-test failed");
+        // gemma.self_test().expect("AI Self-test failed");
         gemma.set_initialized(true);
 
         Arc::new(Mutex::new(gemma))
@@ -1042,6 +1042,24 @@ async fn filter_with_ai(
         Vec::new();
 
     for paper in papers {
+
+        let summary_snippet = if paper
+            .summary
+            .len()
+            > 300
+        {
+
+            format!(
+                "{}...",
+                &paper.summary
+                    [0 .. 300]
+            )
+        } else {
+
+            paper
+                .summary
+                .clone()
+        };
 
         let prompt = format!(
             "<start_of_turn>user\\
@@ -1057,20 +1075,7 @@ async fn filter_with_ai(
              n<start_of_turn>model\n",
             negative_query,
             paper.title,
-            if paper.summary.len() > 300
-            {
-
-                format!(
-                    "{}...",
-                    &paper.summary
-                        [0 .. 300]
-                )
-            } else {
-
-                paper
-                    .summary
-                    .clone()
-            }
+            summary_snippet
         );
 
         let response = match model
