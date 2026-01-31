@@ -17,8 +17,6 @@ fn main() -> Result<
     let mut emitter =
         Emitter::default();
 
-    emitter.idempotent();
-
     emitter.add_instructions(
         &BuildBuilder::all_build()?,
     )?;
@@ -27,9 +25,12 @@ fn main() -> Result<
         &CargoBuilder::all_cargo()?,
     )?;
 
-    emitter.add_instructions(
-        &GitclBuilder::all_git()?,
-    )?;
+    let git = GitclBuilder::default()
+        .all()
+        .dirty(true)
+        .build()?;
+
+    emitter.add_instructions(&git)?;
 
     emitter.add_instructions(
         &RustcBuilder::all_rustc()?,

@@ -78,7 +78,7 @@
 use clap::Parser;
 
 const LONG_VERSION: &str = concat!(
-    "arXiv Daily Dashboard Build Information\n",
+    "\narXiv Daily Dashboard Build Information\n",
     "==================================================\n",
     "SOFTWARE INFO\n",
     "  Version:          ", env!("CARGO_PKG_VERSION"), "\n",

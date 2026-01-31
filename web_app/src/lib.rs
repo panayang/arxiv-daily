@@ -483,6 +483,15 @@ pub struct VersionInfo {
     pub total_memory: String,
 }
 
+use std::sync::LazyLock;
+
+pub static REPOSITORY: LazyLock<
+    String,
+> = LazyLock::new(|| {
+
+    "https://github.com/panayang/arxiv-daily".to_string()
+});
+
 #[server(GetVersionInfo, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn get_version_info()
@@ -491,7 +500,7 @@ pub async fn get_version_info()
     Ok(VersionInfo {
         build_semver: env!("CARGO_PKG_VERSION").to_string(),
         authors: env!("CARGO_PKG_AUTHORS").to_string(),
-        repository: env!("VERGEN_GIT_DESCRIBE").to_string(),
+        repository: REPOSITORY.clone(),
         build_timestamp: env!("VERGEN_BUILD_TIMESTAMP").to_string(),
         optimization: env!("VERGEN_CARGO_OPT_LEVEL").to_string(),
         debug_symbols: env!("VERGEN_CARGO_DEBUG").to_string(),
@@ -2618,7 +2627,7 @@ pub fn AboutModal(
     view! {
         <Show when=move || show.get()>
             <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" on:click=move |_| on_close.run(())>
-                <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200" on:click=|ev| ev.stop_propagation()>
+                <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200" on:click=|ev| ev.stop_propagation()>
                     <div class="p-6 border-b border-white/5 flex justify-between items-center">
                         <div class="flex items-center gap-2">
                             <svg class="w-5 h-5 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2628,7 +2637,7 @@ pub fn AboutModal(
                         </div>
                         <button on:click=move |_| on_close.run(()) class="text-obsidian-text/40 hover:text-white transition-colors">"✕"</button>
                     </div>
-                    <div class="p-8 space-y-6">
+                    <div class="p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
                         <div class="flex flex-col items-center text-center space-y-4 mb-4">
                             <div class="relative group/logo">
                                 <div class="absolute -inset-1 bg-gradient-to-r from-obsidian-accent to-purple-500 rounded-2xl blur opacity-25 group-hover/logo:opacity-50 transition duration-1000 group-hover/logo:duration-200"></div>
@@ -2645,7 +2654,7 @@ pub fn AboutModal(
                                 {move || version_resource.get().map(|res| {
                                     match res {
                                         Ok(info) => view! {
-                                            <div class="max-h-[65vh] overflow-y-auto custom-scrollbar divide-y divide-white/5">
+                                            <div class="divide-y divide-white/5">
                                                 <div class="p-6 space-y-4">
                                                     <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-accent">"Software Info"</h4>
                                                     <div class="space-y-3 text-sm">
