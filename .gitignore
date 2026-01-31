@@ -27,3 +27,4 @@ target
 gemma.rs
 gemma3.cpp
 inspect_gguf.rs
+/vendor
