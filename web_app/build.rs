@@ -12,6 +12,8 @@ fn main() -> Result<
     Box<dyn std::error::Error>,
 > {
 
+    println!("cargo:rustc-env=VERGEN_SYSINFO_KERNEL_VERSION=unknown");
+
     let mut emitter =
         Emitter::default();
 
