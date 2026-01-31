@@ -96,6 +96,7 @@ fn main() -> Result<
             &tokenizer_json_path,
         )
         .map_err(|e| {
+
             format!(
                 "Failed to read file: \
                  {}",

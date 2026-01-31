@@ -61,12 +61,15 @@ mistralrs = { version = "0.7", optional = true }
 rssn = { version = "0.2", features = ["full"], optional = true }
 bincode-next = { version = "2.0", features = ["serde"] }
 clap = { version = "4.5", features = ["env"], optional = true }
+memmap2 = "0.9"
 simd-json = { version = "0.17", optional = true }
 pulp = { version = "0.22", features = [
     "macro",
     "x86-v4",
     "nightly",
 ], optional = true }
+leptos_workers = { version = "0.3", features = ["ssr"] }
+wgpu = "28.0"
 
 [features]
 default = ["ssr"]

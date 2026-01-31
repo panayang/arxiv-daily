@@ -21,6 +21,7 @@ use shared::Category;
 use shared::Paper;
 #[cfg(feature = "ssr")]
 use tokio::sync::Mutex;
+#[allow(unused_imports)]
 #[cfg(feature = "ssr")]
 use tokio::sync::OnceCell;
 
@@ -1057,9 +1058,26 @@ mod ai;
 
 #[cfg(feature = "ssr")]
 
-static MODEL: OnceCell<
-    Arc<Mutex<ai::Gemma3>>,
-> = OnceCell::const_new();
+static MODEL: Mutex<
+    Option<Arc<Mutex<ai::Gemma3>>>,
+> = Mutex::const_new(None);
+
+#[server(UnloadModel, "/api", input = Bitcode, output = Bitcode)]
+
+pub async fn unload_model()
+-> Result<(), ServerFnError> {
+
+    log::info!(
+        "Unloading AI model from \
+         RAM..."
+    );
+
+    let mut model = MODEL.lock().await;
+
+    *model = None;
+
+    Ok(())
+}
 
 #[cfg(feature = "ssr")]
 
@@ -1082,24 +1100,83 @@ async fn filter_with_ai(
         negative_query
     );
 
-    let model_mu = MODEL.get_or_init(|| async {
-        let (model_path, tokenizer_path) = if std::path::Path::new("assets/llm.bin").exists() {
-            ("assets/llm.bin".to_string(), "assets/tokenizer.bin".to_string())
-        } else if std::path::Path::new("../assets/llm.bin").exists() {
-            ("../assets/llm.bin".to_string(), "../assets/tokenizer.bin".to_string())
+    let mut model_lock =
+        MODEL.lock().await;
+
+    let model_mu = if let Some(m) =
+        &*model_lock
+    {
+
+        m.clone()
+    } else {
+
+        let (
+            model_path,
+            tokenizer_path,
+        ) = if std::path::Path::new(
+            "assets/llm.bin",
+        )
+        .exists()
+        {
+
+            (
+                "assets/llm.bin"
+                    .to_string(),
+                "assets/tokenizer.bin"
+                    .to_string(),
+            )
+        } else if std::path::Path::new(
+            "../assets/llm.bin",
+        )
+        .exists()
+        {
+
+            (
+                "../assets/llm.bin"
+                    .to_string(),
+                "../assets/tokenizer.\
+                 bin"
+                .to_string(),
+            )
         } else {
-            ("assets/llm.bin".to_string(), "assets/tokenizer.bin".to_string())
+
+            (
+                "assets/llm.bin"
+                    .to_string(),
+                "assets/tokenizer.bin"
+                    .to_string(),
+            )
         };
 
-        log::info!("Loading custom Gemma 3 model from {}...", model_path);
-        let mut gemma = ai::Gemma3::new(model_path, tokenizer_path).expect("Failed to load Gemma 3 model");
+        log::info!(
+            "Loading custom Gemma 3 \
+             model from {}...",
+            model_path
+        );
+
+        let mut gemma =
+            ai::Gemma3::new(
+                model_path,
+                tokenizer_path,
+            )
+            .expect(
+                "Failed to load Gemma \
+                 3 model",
+            );
 
         // Run self-test
         // gemma.self_test().expect("AI Self-test failed");
         gemma.set_initialized(true);
 
-        Arc::new(Mutex::new(gemma))
-    }).await;
+        let m =
+            Arc::new(Mutex::new(gemma));
+
+        *model_lock = Some(m.clone());
+
+        m
+    };
+
+    drop(model_lock);
 
     let mut model = model_mu
         .lock()
@@ -1466,6 +1543,15 @@ fn Dashboard() -> impl IntoView {
         set_page.set(1);
     });
 
+    let unload_action =
+        Action::new(|_| {
+
+            async move {
+
+                unload_model().await
+            }
+        });
+
     let fetch_action = Action::new(
         move |(cat, start, end): &(
             String,
@@ -1701,6 +1787,7 @@ fn Dashboard() -> impl IntoView {
                 on_reset=Callback::new(on_reset)
                 on_edit_config=Callback::new(move |_| set_show_config.set(true))
                 on_about=Callback::new(move |_| set_show_about.set(true))
+                on_unload_model=Callback::new(move |_| { unload_action.dispatch(()); })
                 end_date_filter=end_date_filter.into()
                 set_end_date_filter
                 negative_query=negative_query.into()
@@ -2120,6 +2207,7 @@ fn FilterBar(
     on_reset: Callback<()>,
     on_edit_config: Callback<()>,
     on_about: Callback<()>,
+    on_unload_model: Callback<()>,
     use_llm: Signal<bool>,
     set_use_llm: WriteSignal<bool>,
 ) -> impl IntoView {
@@ -2383,6 +2471,18 @@ fn FilterBar(
                     </svg>
                     "About"
                 </button>
+
+                <button
+                    on:click=move |_| on_unload_model.run(())
+                    class="h-11 px-5 bg-white/5 text-red-400 text-xs font-black uppercase tracking-widest rounded-xl hover:bg-red-500/10 transition-all flex items-center justify-center gap-2 border border-red-500/20"
+                    title="Drop LLM from RAM"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    "Drop RAM"
+                </button>
+
             </div>
         </div>
     }

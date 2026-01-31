@@ -555,12 +555,20 @@ impl Model {
     ) -> anyhow::Result<Self> {
 
         // println!("🔍 Loading GGUF from {:?}", path.as_ref());
-        let mut file =
+        let file =
             std::fs::File::open(path)?;
+
+        let mmap = unsafe {
+
+            memmap2::Mmap::map(&file)?
+        };
+
+        let mut reader =
+            std::io::Cursor::new(&mmap);
 
         let content =
             gguf_file::Content::read(
-                &mut file,
+                &mut reader,
             )?;
 
         // println!("📝 GGUF Keys:");
@@ -588,7 +596,7 @@ impl Model {
         let embed_tokens_weight =
             content
                 .tensor(
-                    &mut file,
+                    &mut reader,
                     "token_embd.weight",
                     device,
                 )?
@@ -643,17 +651,17 @@ impl Model {
                         .clone()
                 };
 
-            let q_proj = QLinear::new(content.tensor(&mut file, &format!("{}.attn_q.weight", prefix), device)?)?;
+            let q_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_q.weight", prefix), device)?)?;
 
-            let k_proj = QLinear::new(content.tensor(&mut file, &format!("{}.attn_k.weight", prefix), device)?)?;
+            let k_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_k.weight", prefix), device)?)?;
 
-            let v_proj = QLinear::new(content.tensor(&mut file, &format!("{}.attn_v.weight", prefix), device)?)?;
+            let v_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_v.weight", prefix), device)?)?;
 
-            let o_proj = QLinear::new(content.tensor(&mut file, &format!("{}.attn_output.weight", prefix), device)?)?;
+            let o_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_output.weight", prefix), device)?)?;
 
-            let q_norm_w = content.tensor(&mut file, &format!("{}.attn_q_norm.weight", prefix), device)?.dequantize(device)?;
+            let q_norm_w = content.tensor(&mut reader, &format!("{}.attn_q_norm.weight", prefix), device)?.dequantize(device)?;
 
-            let k_norm_w = content.tensor(&mut file, &format!("{}.attn_k_norm.weight", prefix), device)?.dequantize(device)?;
+            let k_norm_w = content.tensor(&mut reader, &format!("{}.attn_k_norm.weight", prefix), device)?.dequantize(device)?;
 
             let q_norm = RmsNorm::new(
                 q_norm_w,
@@ -676,11 +684,11 @@ impl Model {
                 kv_cache: None,
             };
 
-            let gate_proj = QLinear::new(content.tensor(&mut file, &format!("{}.ffn_gate.weight", prefix), device)?)?;
+            let gate_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_gate.weight", prefix), device)?)?;
 
-            let up_proj = QLinear::new(content.tensor(&mut file, &format!("{}.ffn_up.weight", prefix), device)?)?;
+            let up_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_up.weight", prefix), device)?)?;
 
-            let down_proj = QLinear::new(content.tensor(&mut file, &format!("{}.ffn_down.weight", prefix), device)?)?;
+            let down_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_down.weight", prefix), device)?)?;
 
             let mlp = MLP {
                 gate_proj,
@@ -689,22 +697,22 @@ impl Model {
             };
 
             let attn_norm = RmsNorm::new(
-                content.tensor(&mut file, &format!("{}.attn_norm.weight", prefix), device)?.dequantize(device)?,
+                content.tensor(&mut reader, &format!("{}.attn_norm.weight", prefix), device)?.dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let post_attn_norm = RmsNorm::new(
-                content.tensor(&mut file, &format!("{}.post_attention_norm.weight", prefix), device)?.dequantize(device)?,
+                content.tensor(&mut reader, &format!("{}.post_attention_norm.weight", prefix), device)?.dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let ffn_norm = RmsNorm::new(
-                content.tensor(&mut file, &format!("{}.ffn_norm.weight", prefix), device)?.dequantize(device)?,
+                content.tensor(&mut reader, &format!("{}.ffn_norm.weight", prefix), device)?.dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let post_ffn_norm = RmsNorm::new(
-                content.tensor(&mut file, &format!("{}.post_ffw_norm.weight", prefix), device)?.dequantize(device)?,
+                content.tensor(&mut reader, &format!("{}.post_ffw_norm.weight", prefix), device)?.dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
@@ -721,7 +729,7 @@ impl Model {
 
         let norm_w = content
             .tensor(
-                &mut file,
+                &mut reader,
                 "output_norm.weight",
                 device,
             )?
@@ -739,7 +747,7 @@ impl Model {
             ) {
 
             content.tensor(
-                &mut file,
+                &mut reader,
                 "output.weight",
                 device,
             )?
@@ -752,7 +760,7 @@ impl Model {
 
             // println!("💡 Weight tying detected: using token_embd.weight for output.weight");
             content.tensor(
-                &mut file,
+                &mut reader,
                 "token_embd.weight",
                 device,
             )?
@@ -909,14 +917,21 @@ impl Gemma3 {
             &device,
         )?;
 
-        let tokenizer_bytes =
-            std::fs::read(
+        let tokenizer_file =
+            std::fs::File::open(
                 tokenizer_path,
             )?;
 
+        let mmap = unsafe {
+
+            memmap2::Mmap::map(
+                &tokenizer_file,
+            )?
+        };
+
         let config = bincode_next::config::legacy();
 
-        let (tokenizer_json, _): (serde_json::Value, _) = bincode_next::serde::decode_from_slice(&tokenizer_bytes, config)
+        let (tokenizer_json, _): (serde_json::Value, _) = bincode_next::serde::decode_from_slice(&mmap, config)
             .map_err(|e| anyhow::anyhow!("Failed to deserialize tokenizer Value: {}", e))?;
 
         let tokenizer: Tokenizer = serde_json::from_value(tokenizer_json)
