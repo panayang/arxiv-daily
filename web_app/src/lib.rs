@@ -15,14 +15,9 @@ use leptos_router::components::*;
 use leptos_router::*;
 use shared::Category;
 use shared::Paper;
-#[cfg(feature = "ssr")]
-use tokio::sync::OnceCell;
 
 #[cfg(feature = "ssr")]
-
-static MODEL: OnceCell<
-    Arc<kalosm::language::Llama>,
-> = OnceCell::const_new();
+use tokio::sync::{OnceCell, Mutex};
 
 #[server(GetPapers, "/api", input = Bitcode, output = Bitcode)]
 
@@ -232,7 +227,7 @@ pub async fn get_papers(
     #[cfg(feature = "ssr")]
     if !negative_query.is_empty() {
 
-        papers = filter_with_kalosm(
+        papers = filter_with_ai(
             papers,
             negative_query,
         )
@@ -990,112 +985,66 @@ async fn get_db_path()
 }
 
 #[cfg(feature = "ssr")]
+mod ai;
 
-async fn filter_with_kalosm(
+#[cfg(feature = "ssr")]
+static MODEL: OnceCell<Arc<Mutex<ai::Gemma3>>> = OnceCell::const_new();
+
+#[cfg(feature = "ssr")]
+async fn filter_with_ai(
     papers: Vec<Paper>,
     negative_query: String,
 ) -> Vec<Paper> {
-
-    use std::path::PathBuf;
-
-    use kalosm::language::*;
-
-    if negative_query.is_empty()
-        || papers.is_empty()
-    {
-
+    if negative_query.is_empty() || papers.is_empty() {
         return papers;
     }
 
-    log::info!(
-        "AI filtering {} papers with \
-         negative filter: '{}'",
-        papers.len(),
-        negative_query
-    );
+    log::info!("AI filtering {} papers with negative filter: '{}'", papers.len(), negative_query);
 
-    let model = MODEL.get_or_init(|| async {
-        let model_path = if std::path::Path::new("assets/gemma-270m.gguf").exists() {
-            "assets/gemma-270m.gguf".to_string()
+    let model_mu = MODEL.get_or_init(|| async {
+        let (model_path, tokenizer_path) = if std::path::Path::new("assets/gemma-270m.gguf").exists() {
+            ("assets/gemma-270m.gguf".to_string(), "assets/tokenizer.json".to_string())
         } else if std::path::Path::new("../assets/gemma-270m.gguf").exists() {
-            "../assets/gemma-270m.gguf".to_string()
+            ("../assets/gemma-270m.gguf".to_string(), "../assets/tokenizer.json".to_string())
         } else {
-            "assets/gemma-270m.gguf".to_string()
-        };
-
-        let tokenizer_path = if std::path::Path::new("assets/tokenizer.json").exists() {
-            "assets/tokenizer.json".to_string()
-        } else if std::path::Path::new("../assets/tokenizer.json").exists() {
-            "../assets/tokenizer.json".to_string()
-        } else {
-            "assets/tokenizer.json".to_string()
+            ("assets/gemma-270m.gguf".to_string(), "assets/tokenizer.json".to_string())
         };
 
         log::info!("Loading custom Gemma 3 model from {}...", model_path);
-
-        // LlamaSource::new takes a FileSource
-        let source = LlamaSource::new(FileSource::local(PathBuf::from(model_path)))
-            .with_tokenizer(FileSource::local(PathBuf::from(tokenizer_path)));
-
-        let m = Llama::builder()
-            .with_source(source)
-            .build()
-            .await
-            .expect("Failed to load Gemma 3 model from GGUF");
-        Arc::new(m)
+        let mut gemma = ai::Gemma3::new(model_path, tokenizer_path).expect("Failed to load Gemma 3 model");
+        
+        // Run self-test
+        gemma.self_test().expect("AI Self-test failed");
+        gemma.set_initialized(true);
+        
+        Arc::new(Mutex::new(gemma))
     }).await;
 
-    let mut filtered_papers =
-        Vec::new();
+    let mut model = model_mu.lock().await;
+    let mut filtered_papers = Vec::new();
 
     for paper in papers {
-
         let prompt = format!(
-            "<|system|>You are a research paper filter. Your goal is to determine if a paper should be HIDDEN based on the user's negative criteria. Respond ONLY with 'YES' if it should be hidden, or 'NO' if it should be kept.<|endoftext|>\
-             <|user|>Criteria: Papers about \"{}\"\n\n\
-             Paper Title: {}\n\
-             Paper Summary: {}\n\n\
-             Should this paper be HIDDEN?<|endoftext|>\
-             <|assistant|>",
-            negative_query, paper.title, paper.summary
+            "<start_of_turn>user\nInstructions: Respond ONLY with YES or NO.\nNegative Filter: Skip papers related to \"{}\".\nPaper Title: {}\nSummary Snippet: {}\nQuestion: Should I skip this paper?\nAnswer: <end_of_turn>\n<start_of_turn>model\n",
+            negative_query, paper.title, if paper.summary.len() > 300 { format!("{}...", &paper.summary[0..300]) } else { paper.summary.clone() }
         );
 
-        let response = match model
-            .complete(&prompt)
-            .await
-        {
-            | Ok(r) => r,
-            | Err(e) => {
-
-                log::error!(
-                    "AI completion \
-                     error: {}",
-                    e
-                );
-
-                filtered_papers
-                    .push(paper);
-
+        let response = match model.complete(&prompt, 3) {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("AI completion error: {}", e);
+                filtered_papers.push(paper);
                 continue;
-            },
+            }
         };
 
-        let response = response
-            .trim()
-            .to_uppercase();
-
-        let is_excluded =
-            response.contains("YES");
+        let response = response.trim().to_uppercase();
+        let is_excluded = response.contains("YES");
 
         if !is_excluded {
-
             filtered_papers.push(paper);
         } else {
-
-            log::info!(
-                "AI Filtered out: {}",
-                paper.title
-            );
+            log::info!("AI Filtered out: {}", paper.title);
         }
     }
 

@@ -37,7 +37,7 @@ http = "1"
 reqwest = { version = "0.13", features = ["json"], optional = true }
 feed-rs = { version = "2.3", optional = true }
 serde_json = "1.0"
-web-sys = { version = "0.3.83", features = [
+web-sys = { version = "0.3", features = [
     "Window",
     "Element",
     "HtmlElement",
@@ -49,13 +49,16 @@ web-sys = { version = "0.3.83", features = [
     "ScrollBehavior",
 ] }
 open = { version = "5", optional = true }
-rust-embed = "8.9.0"
-mime_guess = "2.0.5"
-kalosm = { version = "0.4.0", features = [
-    "language",
-    "llama",
-], optional = true }
-futures-util = "0.3"
+rust-embed = "8.9"
+mime_guess = "2.0"
+kalosm = { version = "0.4", features = ["language", "llama"], optional = true }
+futures-util = { version = "0.3", optional = true }
+candle-core = { version = "0.9", optional = true }
+candle-nn = { version = "0.9", optional = true }
+anyhow = "1.0"
+tokenizers = { version = "0.22", optional = true }
+mistralrs = { version = "0.7", optional = true }
+rssn = { version = "0.2", features = ["full"], optional = true }
 
 [features]
 default = ["ssr"]
@@ -81,6 +84,12 @@ ssr = [
     "dep:feed-rs",
     "dep:open",
     "dep:kalosm",
+    "dep:futures-util",
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:mistralrs",
+    "dep:rssn",
+    "dep:tokenizers",
 ]
 
 [lib]
