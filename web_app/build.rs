@@ -1,6 +1,5 @@
 use std::path::Path;
 
-use simd_json::prelude::*;
 use vergen_gitcl::BuildBuilder;
 use vergen_gitcl::CargoBuilder;
 use vergen_gitcl::Emitter;
