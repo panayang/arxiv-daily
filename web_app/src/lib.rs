@@ -1522,6 +1522,34 @@ fn Dashboard() -> impl IntoView {
                 set_trigger_search.update(|p| {
                     if p.query != query {
                         p.query = query;
+                        p.page = 1;
+                    }
+                });
+            },
+            std::time::Duration::from_millis(300),
+        );
+
+        move || {
+            if let Ok(timeout) = timeout
+            {
+
+                timeout.clear();
+            }
+        }
+    });
+
+    // Negative query debounce effect
+    Effect::new(move |_| {
+
+        let neg_query =
+            negative_query.get();
+
+        let timeout = set_timeout_with_handle(
+            move || {
+                set_trigger_search.update(|p| {
+                    if p.negative_query != neg_query {
+                        p.negative_query = neg_query;
+                        p.page = 1;
                     }
                 });
             },
