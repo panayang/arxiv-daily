@@ -15,6 +15,8 @@ fn main() -> Result<
     let mut emitter =
         Emitter::default();
 
+    emitter.idempotent();
+
     emitter.add_instructions(
         &BuildBuilder::all_build()?,
     )?;
