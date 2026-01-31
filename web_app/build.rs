@@ -109,6 +109,7 @@ fn main() -> Result<
             )
         })?;
 
+        #[allow(unused_variables)]
         let tokenizer_json: serde_json::Value = simd_json::from_slice(&mut bytes)
             .map_err(|e| format!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
 
