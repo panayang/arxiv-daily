@@ -8,11 +8,15 @@
 #[cfg(feature = "ssr")]
 use std::sync::Arc;
 
+use bitcode::Decode;
+use bitcode::Encode;
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
 use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::*;
+use serde::Deserialize;
+use serde::Serialize;
 use shared::Category;
 use shared::Paper;
 #[cfg(feature = "ssr")]
@@ -443,6 +447,58 @@ pub async fn save_config(
 
     Ok(())
 }
+
+#[derive(
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    Clone,
+    Debug,
+    Default,
+    PartialEq,
+)]
+
+pub struct VersionInfo {
+    pub build_semver: String,
+    pub build_timestamp: String,
+    pub git_sha: String,
+    pub git_branch: String,
+    pub rustc_semver: String,
+    pub os_version: String,
+}
+
+#[server(GetVersionInfo, "/api", input = Bitcode, output = Bitcode)]
+
+pub async fn get_version_info()
+-> Result<VersionInfo, ServerFnError> {
+
+    Ok(VersionInfo {
+        build_semver: env!(
+            "VERGEN_BUILD_SEMVER"
+        )
+        .to_string(),
+        build_timestamp: env!(
+            "VERGEN_BUILD_TIMESTAMP"
+        )
+        .to_string(),
+        git_sha: env!("VERGEN_GIT_SHA")
+            .to_string(),
+        git_branch: env!(
+            "VERGEN_GIT_BRANCH"
+        )
+        .to_string(),
+        rustc_semver: env!(
+            "VERGEN_RUSTC_SEMVER"
+        )
+        .to_string(),
+        os_version: env!(
+            "VERGEN_SYSINFO_OS_VERSION"
+        )
+        .to_string(),
+    })
+}
+
 
 #[server(FetchNewArticles, "/api", input = Bitcode, output = Bitcode)]
 
@@ -1273,6 +1329,9 @@ fn Dashboard() -> impl IntoView {
     let (show_config, set_show_config) =
         signal(false);
 
+    let (show_about, set_show_about) =
+        signal(false);
+
     #[derive(
         Clone, Default, PartialEq,
     )]
@@ -1641,6 +1700,7 @@ fn Dashboard() -> impl IntoView {
                 on_search=Callback::new(on_search)
                 on_reset=Callback::new(on_reset)
                 on_edit_config=Callback::new(move |_| set_show_config.set(true))
+                on_about=Callback::new(move |_| set_show_about.set(true))
                 end_date_filter=end_date_filter.into()
                 set_end_date_filter
                 negative_query=negative_query.into()
@@ -1650,6 +1710,7 @@ fn Dashboard() -> impl IntoView {
             />
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
+            <AboutModal show=show_about.into() on_close=Callback::new(move |_| set_show_about.set(false))/>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
                 <Transition fallback=move || view! {
@@ -2058,6 +2119,7 @@ fn FilterBar(
     on_search: Callback<()>,
     on_reset: Callback<()>,
     on_edit_config: Callback<()>,
+    on_about: Callback<()>,
     use_llm: Signal<bool>,
     set_use_llm: WriteSignal<bool>,
 ) -> impl IntoView {
@@ -2310,6 +2372,17 @@ fn FilterBar(
                     </svg>
                     "Config"
                 </button>
+
+                <button
+                    on:click=move |_| on_about.run(())
+                    class="h-11 px-5 bg-white/5 text-obsidian-text text-xs font-black uppercase tracking-widest rounded-xl hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+                    title="About"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    "About"
+                </button>
             </div>
         </div>
     }
@@ -2405,8 +2478,112 @@ fn BackToTop() -> impl IntoView {
     }
 }
 
-#[cfg(feature = "hydrate")]
-#[wasm_bindgen::prelude::wasm_bindgen]
+#[component]
+
+pub fn AboutModal(
+    show: Signal<bool>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+
+    let version_resource =
+        Resource::new(
+            move || show.get(),
+            |show_val| {
+
+                async move {
+
+                    if show_val {
+
+                        get_version_info().await
+                    } else {
+
+                        Ok(VersionInfo::default())
+                    }
+                }
+            },
+        );
+
+    view! {
+        <Show when=move || show.get()>
+            <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" on:click=move |_| on_close.run(())>
+                <div class="bg-obsidian-sidebar border border-white/10 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-200" on:click=|ev| ev.stop_propagation()>
+                    <div class="p-6 border-b border-white/5 flex justify-between items-center">
+                        <div class="flex items-center gap-2">
+                            <svg class="w-5 h-5 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <h2 class="text-xl font-bold text-obsidian-heading">"About arXiv Daily"</h2>
+                        </div>
+                        <button on:click=move |_| on_close.run(()) class="text-obsidian-text/40 hover:text-white transition-colors">"✕"</button>
+                    </div>
+                    <div class="p-8 space-y-6">
+                        <div class="flex flex-col items-center text-center space-y-4 mb-4">
+                            <div class="relative group/logo">
+                                <div class="absolute -inset-1 bg-gradient-to-r from-obsidian-accent to-purple-500 rounded-2xl blur opacity-25 group-hover/logo:opacity-50 transition duration-1000 group-hover/logo:duration-200"></div>
+                                <img src="/logo.svg" alt="Logo" class="relative w-20 h-20 rounded-2xl shadow-xl bg-obsidian-sidebar" />
+                            </div>
+                            <div>
+                                <h3 class="text-2xl font-black text-white italic tracking-tighter">"arXiv" <span class="text-obsidian-accent">"Daily"</span></h3>
+                                <p class="text-xs text-obsidian-text/40 font-bold uppercase tracking-widest mt-1">"Research Discovery Engine"</p>
+                            </div>
+                        </div>
+
+                        <div class="bg-obsidian-bg rounded-xl border border-white/5 overflow-hidden">
+                            <Transition fallback=move || view! { <div class="p-4 text-center animate-pulse text-obsidian-text/20">"Retrieving build metadata..."</div> }>
+                                {move || version_resource.get().map(|res| {
+                                    match res {
+                                        Ok(info) => view! {
+                                            <div class="divide-y divide-white/5 text-sm">
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"Version"</span>
+                                                    <span class="text-obsidian-accent font-mono font-bold">{info.build_semver}</span>
+                                                </div>
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"Build Date"</span>
+                                                    <span class="text-obsidian-heading font-mono text-xs">{info.build_timestamp}</span>
+                                                </div>
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"Git Branch"</span>
+                                                    <span class="text-obsidian-heading font-mono">{info.git_branch}</span>
+                                                </div>
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"Git SHA"</span>
+                                                    <span class="text-obsidian-heading font-mono text-[10px]">{info.git_sha}</span>
+                                                </div>
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"Rustc"</span>
+                                                    <span class="text-obsidian-heading font-mono text-xs">{info.rustc_semver}</span>
+                                                </div>
+                                                <div class="flex justify-between p-4">
+                                                    <span class="text-obsidian-text/40 font-medium">"OS"</span>
+                                                    <span class="text-white/60 font-medium italic text-xs">{info.os_version}</span>
+                                                </div>
+                                            </div>
+                                        }.into_any(),
+                                        Err(e) => view! { <div class="p-4 text-red-400 text-xs font-mono">"Error: "{e.to_string()}</div> }.into_any(),
+                                    }
+                                })}
+                            </Transition>
+                        </div>
+
+                        <p class="text-[10px] text-center text-obsidian-text/20 uppercase font-black tracking-[0.3em] pt-4 leading-relaxed">
+                            "Designed for researchers by" <br/>
+                            <span class="text-obsidian-text/40">"APICH ORGANIZATION"</span>
+                        </p>
+                    </div>
+                    <div class="p-4 bg-white/5 flex justify-center">
+                         <button
+                            on:click=move |_| on_close.run(())
+                            class="w-full py-3 text-xs font-black uppercase tracking-widest text-obsidian-text/60 hover:text-white transition-colors"
+                        >
+                            "Close System Info"
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Show>
+    }
+}
 
 pub fn hydrate() {
 

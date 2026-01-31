@@ -80,6 +80,40 @@
 
 async fn main() {
 
+    let args: Vec<String> =
+        std::env::args().collect();
+
+    if args.contains(
+        &"--version".to_string(),
+    ) || args
+        .contains(&"-v".to_string())
+    {
+
+        println!(
+            "arXiv Daily Dashboard"
+        );
+
+        println!(
+            "Version: {}",
+            env!("VERGEN_BUILD_SEMVER")
+        );
+
+        println!("Build Timestamp: {}", env!("VERGEN_BUILD_TIMESTAMP"));
+
+        println!(
+            "Git SHA: {}",
+            env!("VERGEN_GIT_SHA")
+        );
+
+        println!(
+            "Rustc Version: {}",
+            env!("VERGEN_RUSTC_SEMVER")
+        );
+
+        return;
+    }
+
+
     use axum::Router;
     use axum::routing::post;
     use leptos::prelude::*;
