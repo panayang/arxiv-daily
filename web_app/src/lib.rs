@@ -30,6 +30,7 @@ pub async fn get_papers(
     page: usize,
     page_size: usize,
     negative_query: String,
+    use_llm: bool,
 ) -> Result<Vec<Paper>, ServerFnError> {
 
     use chrono::DateTime;
@@ -228,11 +229,21 @@ pub async fn get_papers(
     #[cfg(feature = "ssr")]
     if !negative_query.is_empty() {
 
-        papers = filter_with_ai(
-            papers,
-            negative_query,
-        )
-        .await;
+        if use_llm {
+
+            papers = filter_with_ai(
+                papers,
+                negative_query,
+            )
+            .await;
+        } else {
+
+            papers =
+                filter_with_keywords(
+                    papers,
+                    negative_query,
+                );
+        }
     }
 
     Ok(papers)
@@ -1016,12 +1027,12 @@ async fn filter_with_ai(
     );
 
     let model_mu = MODEL.get_or_init(|| async {
-        let (model_path, tokenizer_path) = if std::path::Path::new("assets/gemma-270m.gguf").exists() {
-            ("assets/gemma-270m.gguf".to_string(), "assets/tokenizer.json".to_string())
-        } else if std::path::Path::new("../assets/gemma-270m.gguf").exists() {
-            ("../assets/gemma-270m.gguf".to_string(), "../assets/tokenizer.json".to_string())
+        let (model_path, tokenizer_path) = if std::path::Path::new("assets/llm.bin").exists() {
+            ("assets/llm.bin".to_string(), "assets/tokenizer.bin".to_string())
+        } else if std::path::Path::new("../assets/llm.bin").exists() {
+            ("../assets/llm.bin".to_string(), "../assets/tokenizer.bin".to_string())
         } else {
-            ("assets/gemma-270m.gguf".to_string(), "assets/tokenizer.json".to_string())
+            ("assets/llm.bin".to_string(), "assets/tokenizer.bin".to_string())
         };
 
         log::info!("Loading custom Gemma 3 model from {}...", model_path);
@@ -1119,6 +1130,69 @@ async fn filter_with_ai(
     filtered_papers
 }
 
+#[allow(dead_code)]
+
+fn filter_with_keywords(
+    papers: Vec<Paper>,
+    negative_query: String,
+) -> Vec<Paper> {
+
+    if negative_query.is_empty()
+        || papers.is_empty()
+    {
+
+        return papers;
+    }
+
+    let keywords: Vec<String> =
+        negative_query
+            .split(',')
+            .map(|s| {
+
+                s.trim()
+                    .to_lowercase()
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
+    if keywords.is_empty() {
+
+        return papers;
+    }
+
+    log::info!(
+        "Keyword filtering {} papers \
+         with keywords: {:?}",
+        papers.len(),
+        keywords
+    );
+
+    papers
+        .into_iter()
+        .filter(|paper| {
+
+            let title = paper
+                .title
+                .to_lowercase();
+
+            let summary = paper
+                .summary
+                .to_lowercase();
+
+            !keywords
+                .iter()
+                .any(|kw| {
+
+                    title.contains(kw)
+                        || summary
+                            .contains(
+                                kw,
+                            )
+                })
+        })
+        .collect()
+}
+
 pub fn shell(
     options: LeptosOptions
 ) -> impl IntoView {
@@ -1190,6 +1264,9 @@ fn Dashboard() -> impl IntoView {
         set_show_fetch_status,
     ) = signal(false);
 
+    let (use_llm, set_use_llm) =
+        signal(true);
+
     let (page, set_page) =
         signal(1usize);
 
@@ -1207,6 +1284,7 @@ fn Dashboard() -> impl IntoView {
         end_date: String,
         page: usize,
         negative_query: String,
+        use_llm: bool,
     }
 
     let (
@@ -1219,6 +1297,7 @@ fn Dashboard() -> impl IntoView {
         end_date: "".to_string(),
         page: 1,
         negative_query: "".to_string(),
+        use_llm: true,
     });
 
     let papers = Resource::new(
@@ -1236,6 +1315,7 @@ fn Dashboard() -> impl IntoView {
                     51,
                     params
                         .negative_query,
+                    params.use_llm,
                 )
                 .await
             }
@@ -1363,6 +1443,7 @@ fn Dashboard() -> impl IntoView {
                     end_date: end,
                     page: 1,
                     negative_query: "".to_string(),
+                    use_llm: true,
                 });
 
                     set_page.set(1);
@@ -1416,6 +1497,7 @@ fn Dashboard() -> impl IntoView {
                         .get(),
                 page: 1,
                 negative_query: negative_query.get(),
+                use_llm: use_llm.get(),
             },
         );
 
@@ -1449,6 +1531,7 @@ fn Dashboard() -> impl IntoView {
                 page: 1,
                 negative_query: ""
                     .to_string(),
+                use_llm: true,
             },
         );
     };
@@ -1562,6 +1645,8 @@ fn Dashboard() -> impl IntoView {
                 set_end_date_filter
                 negative_query=negative_query.into()
                 set_negative_query
+                use_llm=use_llm.into()
+                set_use_llm
             />
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
@@ -1973,6 +2058,8 @@ fn FilterBar(
     on_search: Callback<()>,
     on_reset: Callback<()>,
     on_edit_config: Callback<()>,
+    use_llm: Signal<bool>,
+    set_use_llm: WriteSignal<bool>,
 ) -> impl IntoView {
 
     let (
@@ -2140,7 +2227,15 @@ fn FilterBar(
             </div>
 
             <div class="flex flex-col gap-1.5 min-w-[300px] flex-[2]">
-                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30 ml-1">"Negative AI Filter (What to hide)"</label>
+                <div class="flex items-center justify-between ml-1">
+                    <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30">"Negative Filter (What to hide)"</label>
+                    <div class="flex items-center gap-2 cursor-pointer group/check" on:click=move |_| set_use_llm.update(|v| *v = !*v)>
+                         <span class="text-[10px] font-bold text-obsidian-text/40 group-hover/check:text-obsidian-accent transition-colors">"USE LLM"</span>
+                         <div class=move || format!("w-8 h-4 rounded-full transition-all relative {}", if use_llm.get() { "bg-obsidian-accent" } else { "bg-white/10" })>
+                            <div class=move || format!("absolute top-1 left-1 w-2 h-2 bg-white rounded-full transition-all {}", if use_llm.get() { "translate-x-4" } else { "translate-x-0" })></div>
+                         </div>
+                    </div>
+                </div>
                 <div class="relative group">
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                         <svg class="h-4 w-4 text-obsidian-text/20 group-focus-within:text-red-400 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2149,7 +2244,7 @@ fn FilterBar(
                     </div>
                     <input
                         type="text"
-                        placeholder="e.g. quantum computing, LLM benchmarks..."
+                        placeholder=move || if use_llm.get() { "AI will skip papers matching these topics..." } else { "Words to match (comma separated)..." }
                         class="w-full bg-obsidian-bg border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500/40 transition-all placeholder:text-obsidian-text/20 shadow-inner"
                         on:input=move |ev| set_negative_query.set(event_target_value(&ev))
                         on:keydown=move |ev| {

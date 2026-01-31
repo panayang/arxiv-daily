@@ -909,13 +909,18 @@ impl Gemma3 {
             &device,
         )?;
 
-        let tokenizer =
-            Tokenizer::from_file(
+        let tokenizer_bytes =
+            std::fs::read(
                 tokenizer_path,
-            )
-            .map_err(
-                anyhow::Error::msg,
             )?;
+
+        let config = bincode_next::config::legacy();
+
+        let (tokenizer_json, _): (serde_json::Value, _) = bincode_next::serde::decode_from_slice(&tokenizer_bytes, config)
+            .map_err(|e| anyhow::anyhow!("Failed to deserialize tokenizer Value: {}", e))?;
+
+        let tokenizer: Tokenizer = serde_json::from_value(tokenizer_json)
+            .map_err(|e| anyhow::anyhow!("Failed to create tokenizer from Value: {}", e))?;
 
         Ok(Self {
             model,

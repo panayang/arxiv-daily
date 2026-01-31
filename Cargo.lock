@@ -11093,6 +11093,7 @@ version = "0.3.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bincode-next",
  "bitcode",
  "bytes",
  "candle-core 0.9.2",
