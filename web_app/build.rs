@@ -112,15 +112,17 @@ fn main() -> Result<
         let tokenizer_json: serde_json::Value = simd_json::from_slice(&mut bytes)
             .map_err(|e| format!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
 
-        let config = bincode_next::config::legacy();
-
-        let encoded = bincode_next::serde::encode_to_vec(&tokenizer_json, config)
-            .map_err(|e| format!("Failed to encode tokenizer Value to bincode: {}", e))?;
-
-        std::fs::write(
+        // Just copy the JSON for now. Bincode + serde_json::Value has Serde(AnyNotSupported) issues.
+        std::fs::copy(
+            &tokenizer_json_path,
             &tokenizer_bin_path,
-            encoded,
         )?;
+
+        println!(
+            "cargo:warning=Tokenizer \
+             JSON copied to {}",
+            tokenizer_bin_path
+        );
 
         println!(
             "cargo:warning=Converted \

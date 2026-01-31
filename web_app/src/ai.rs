@@ -29,6 +29,8 @@ use candle_core::quantized::QMatMul;
 #[cfg(feature = "ssr")]
 use candle_core::quantized::gguf_file;
 #[cfg(feature = "ssr")]
+use simd_json;
+#[cfg(feature = "ssr")]
 use tokenizers::Tokenizer;
 
 #[cfg(feature = "ssr")]
@@ -922,20 +924,16 @@ impl Gemma3 {
                 tokenizer_path,
             )?;
 
-        let mmap = unsafe {
+        let mut mmap = unsafe {
 
-            memmap2::Mmap::map(
-                &tokenizer_file,
-            )?
+            memmap2::MmapOptions::new()
+                .map_copy(
+                    &tokenizer_file,
+                )?
         };
 
-        let config = bincode_next::config::legacy();
-
-        let (tokenizer_json, _): (serde_json::Value, _) = bincode_next::serde::decode_from_slice(&mmap, config)
-            .map_err(|e| anyhow::anyhow!("Failed to deserialize tokenizer Value: {}", e))?;
-
-        let tokenizer: Tokenizer = serde_json::from_value(tokenizer_json)
-            .map_err(|e| anyhow::anyhow!("Failed to create tokenizer from Value: {}", e))?;
+        let tokenizer: Tokenizer = simd_json::from_slice(&mut mmap)
+            .map_err(|e| anyhow::anyhow!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
 
         Ok(Self {
             model,
