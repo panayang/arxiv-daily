@@ -1,7 +1,14 @@
 [package]
 name = "web_app"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
+rust-version = "1.90.0"
+authors = ["Xinyu Yang <Pana.Yang@hotmail.com>"]
+description = "This is arXiv-daily: A dashboard for daily arXiv papers."
+license = "Apache-2.0"
+repository = "https://github.com/panayang/arxiv-daily"
+homepage = "https://github.com/panayang/arxiv-daily"
+readme = "../README.md"
 
 [dependencies]
 leptos = { version = "0.8", features = ["bitcode"] }
@@ -60,7 +67,11 @@ tokenizers = { version = "0.22", optional = true }
 mistralrs = { version = "0.7", optional = true }
 rssn = { version = "0.2", features = ["full"], optional = true }
 bincode-next = { version = "2.0", features = ["serde"] }
-clap = { version = "4.5", features = ["env"], optional = true }
+clap = { version = "4.5", features = [
+    "cargo",
+    "derive",
+    "env",
+], optional = true }
 memmap2 = "0.9"
 simd-json = { version = "0.17", optional = true }
 pulp = { version = "0.22", features = [

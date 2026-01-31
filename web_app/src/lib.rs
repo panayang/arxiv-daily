@@ -462,11 +462,25 @@ pub async fn save_config(
 
 pub struct VersionInfo {
     pub build_semver: String,
+    pub authors: String,
+    pub repository: String,
     pub build_timestamp: String,
+    pub optimization: String,
+    pub debug_symbols: String,
+    pub target_triple: String,
     pub git_sha: String,
     pub git_branch: String,
+    pub git_author: String,
+    pub git_commit_message: String,
     pub rustc_semver: String,
+    pub llvm_version: String,
+    pub host_triple: String,
+    pub os_name: String,
     pub os_version: String,
+    pub kernel_version: String,
+    pub cpu_brand: String,
+    pub cpu_cores: String,
+    pub total_memory: String,
 }
 
 #[server(GetVersionInfo, "/api", input = Bitcode, output = Bitcode)]
@@ -475,28 +489,26 @@ pub async fn get_version_info()
 -> Result<VersionInfo, ServerFnError> {
 
     Ok(VersionInfo {
-        build_semver: env!(
-            "CARGO_PKG_VERSION"
-        )
-        .to_string(),
-        build_timestamp: env!(
-            "VERGEN_BUILD_TIMESTAMP"
-        )
-        .to_string(),
-        git_sha: env!("VERGEN_GIT_SHA")
-            .to_string(),
-        git_branch: env!(
-            "VERGEN_GIT_BRANCH"
-        )
-        .to_string(),
-        rustc_semver: env!(
-            "VERGEN_RUSTC_SEMVER"
-        )
-        .to_string(),
-        os_version: env!(
-            "VERGEN_SYSINFO_OS_VERSION"
-        )
-        .to_string(),
+        build_semver: env!("CARGO_PKG_VERSION").to_string(),
+        authors: env!("CARGO_PKG_AUTHORS").to_string(),
+        repository: env!("VERGEN_GIT_DESCRIBE").to_string(),
+        build_timestamp: env!("VERGEN_BUILD_TIMESTAMP").to_string(),
+        optimization: env!("VERGEN_CARGO_OPT_LEVEL").to_string(),
+        debug_symbols: env!("VERGEN_CARGO_DEBUG").to_string(),
+        target_triple: env!("VERGEN_CARGO_TARGET_TRIPLE").to_string(),
+        git_sha: env!("VERGEN_GIT_SHA").to_string(),
+        git_branch: env!("VERGEN_GIT_BRANCH").to_string(),
+        git_author: format!("{} <{}>", env!("VERGEN_GIT_COMMIT_AUTHOR_NAME"), env!("VERGEN_GIT_COMMIT_AUTHOR_EMAIL")),
+        git_commit_message: env!("VERGEN_GIT_COMMIT_MESSAGE").to_string(),
+        rustc_semver: env!("VERGEN_RUSTC_SEMVER").to_string(),
+        llvm_version: env!("VERGEN_RUSTC_LLVM_VERSION").to_string(),
+        host_triple: env!("VERGEN_RUSTC_HOST_TRIPLE").to_string(),
+        os_name: env!("VERGEN_SYSINFO_NAME").to_string(),
+        os_version: env!("VERGEN_SYSINFO_OS_VERSION").to_string(),
+        kernel_version: env!("VERGEN_SYSINFO_KERNEL_VERSION").to_string(),
+        cpu_brand: env!("VERGEN_SYSINFO_CPU_BRAND").to_string(),
+        cpu_cores: env!("VERGEN_SYSINFO_CPU_CORE_COUNT").to_string(),
+        total_memory: env!("VERGEN_SYSINFO_TOTAL_MEMORY").to_string(),
     })
 }
 
@@ -2633,34 +2645,117 @@ pub fn AboutModal(
                                 {move || version_resource.get().map(|res| {
                                     match res {
                                         Ok(info) => view! {
-                                            <div class="divide-y divide-white/5 text-sm">
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"Version"</span>
-                                                    <span class="text-obsidian-accent font-mono font-bold">{info.build_semver}</span>
+                                            <div class="max-h-[65vh] overflow-y-auto custom-scrollbar divide-y divide-white/5">
+                                                <div class="p-6 space-y-4">
+                                                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-accent">"Software Info"</h4>
+                                                    <div class="space-y-3 text-sm">
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Version"</span>
+                                                            <span class="text-obsidian-accent font-mono font-bold tracking-tight">{info.build_semver}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Authors"</span>
+                                                            <span class="text-obsidian-heading text-xs italic">{info.authors}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Repository"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px] truncate">{info.repository}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"Build Date"</span>
-                                                    <span class="text-obsidian-heading font-mono text-xs">{info.build_timestamp}</span>
+
+                                                <div class="p-6 space-y-4">
+                                                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-amber-400">"Build Metadata"</h4>
+                                                    <div class="space-y-3 text-sm">
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Built At"</span>
+                                                            <span class="text-obsidian-heading font-mono text-xs">{info.build_timestamp}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Optimization"</span>
+                                                            <span class="text-amber-400/80 font-mono text-xs">"Level "{info.optimization}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Debug Symbols"</span>
+                                                            <span class="text-obsidian-heading font-mono text-xs">{info.debug_symbols}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Target Triple"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px] truncate">{info.target_triple}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"Git Branch"</span>
-                                                    <span class="text-obsidian-heading font-mono">{info.git_branch}</span>
+
+                                                <div class="p-6 space-y-4">
+                                                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-purple-400">"Git Telemetry"</h4>
+                                                    <div class="space-y-3 text-sm">
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Branch"</span>
+                                                            <span class="text-obsidian-heading font-mono text-xs">{info.git_branch}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Commit SHA"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px]">{info.git_sha}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Author"</span>
+                                                            <span class="text-obsidian-heading text-[10px] italic">{info.git_author}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Commit Message"</span>
+                                                            <span class="text-white/60 text-[10px] bg-white/5 p-2 rounded-lg font-mono leading-relaxed line-clamp-3 italic">
+                                                                {info.git_commit_message}
+                                                            </span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"Git SHA"</span>
-                                                    <span class="text-obsidian-heading font-mono text-[10px]">{info.git_sha}</span>
+
+                                                <div class="p-6 space-y-4">
+                                                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-blue-400">"Compiler Info"</h4>
+                                                    <div class="space-y-3 text-sm">
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Rustc"</span>
+                                                            <span class="text-obsidian-heading font-mono text-xs">{info.rustc_semver}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"LLVM"</span>
+                                                            <span class="text-obsidian-heading font-mono text-xs">{info.llvm_version}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Host Triple"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px] truncate">{info.host_triple}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"Rustc"</span>
-                                                    <span class="text-obsidian-heading font-mono text-xs">{info.rustc_semver}</span>
-                                                </div>
-                                                <div class="flex justify-between p-4">
-                                                    <span class="text-obsidian-text/40 font-medium">"OS"</span>
-                                                    <span class="text-white/60 font-medium italic text-xs">{info.os_version}</span>
+
+                                                <div class="p-6 space-y-4">
+                                                    <h4 class="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400">"Build Host Specs"</h4>
+                                                    <div class="space-y-3 text-sm">
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"OS Target"</span>
+                                                            <span class="text-emerald-400/80 italic text-xs font-bold">{info.os_name} " ("{info.os_version}")"</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"Kernel Version"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px] truncate">{info.kernel_version}</span>
+                                                        </div>
+                                                        <div class="flex flex-col gap-1">
+                                                            <span class="text-obsidian-text/40 text-xs">"CPU Processor"</span>
+                                                            <span class="text-obsidian-heading font-mono text-[10px] truncate">{info.cpu_brand}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Cores"</span>
+                                                            <span class="text-obsidian-heading font-mono">{info.cpu_cores}</span>
+                                                        </div>
+                                                        <div class="flex justify-between">
+                                                            <span class="text-obsidian-text/40">"Total RAM"</span>
+                                                            <span class="text-emerald-400/80 font-mono font-bold">{info.total_memory}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         }.into_any(),
-                                        Err(e) => view! { <div class="p-4 text-red-400 text-xs font-mono">"Error: "{e.to_string()}</div> }.into_any(),
+                                        Err(e) => view! { <div class="p-4 text-red-400 text-xs font-mono bg-red-500/5 rounded-lg border border-red-500/10">"Error: "{e.to_string()}</div> }.into_any(),
                                     }
                                 })}
                             </Transition>
