@@ -1246,6 +1246,7 @@ fn try_latex_to_mathml(
         let err_str = match result {
             | Ok(ref s) => s.clone(),
             | Err(ref e) => {
+
                 format!("{:?}", e)
             },
         };
@@ -1261,6 +1262,7 @@ fn try_latex_to_mathml(
             let end = cmd_part
                 .find("\\\"")
                 .or_else(|| {
+
                     cmd_part.find("\")")
                 });
 
@@ -1383,6 +1385,7 @@ fn try_latex_to_mathml(
 
             let end = after_slash
                 .find(|c: char| {
+
                     !c.is_alphabetic()
                 })
                 .unwrap_or(
@@ -1432,6 +1435,7 @@ pub fn render_math(
     static MATH_DISPLAY: LazyLock<
         Regex,
     > = LazyLock::new(|| {
+
         Regex::new(r"(?s)\$\$(.*?)\$\$")
             .unwrap()
     });
@@ -1439,6 +1443,7 @@ pub fn render_math(
     static MATH_INLINE: LazyLock<
         Regex,
     > = LazyLock::new(|| {
+
         Regex::new(r"(?s)\$(.*?)\$")
             .unwrap()
     });
@@ -1835,9 +1840,13 @@ fn Dashboard() -> impl IntoView {
         date: String,
         end_date: String,
         page: usize,
+        page_size: usize,
         negative_query: String,
         use_llm: bool,
     }
+
+    let (page_size, set_page_size) =
+        signal(51usize);
 
     let (
         trigger_search,
@@ -1848,6 +1857,7 @@ fn Dashboard() -> impl IntoView {
         date: "".to_string(),
         end_date: "".to_string(),
         page: 1,
+        page_size: 51,
         negative_query: "".to_string(),
         use_llm: true,
     });
@@ -1864,7 +1874,7 @@ fn Dashboard() -> impl IntoView {
                     params.date,
                     params.end_date,
                     params.page,
-                    51,
+                    params.page_size,
                     params
                         .negative_query,
                     params.use_llm,
@@ -1960,7 +1970,7 @@ fn Dashboard() -> impl IntoView {
         }
     });
 
-    // Auto-search on category/date change
+    // Auto-search on category/date/page_size change
     Effect::new(move |_| {
 
         let category =
@@ -1971,6 +1981,8 @@ fn Dashboard() -> impl IntoView {
         let end_date =
             end_date_filter.get();
 
+        let size = page_size.get();
+
         set_trigger_search.update(
             |p| {
 
@@ -1979,6 +1991,8 @@ fn Dashboard() -> impl IntoView {
                 p.date = date;
 
                 p.end_date = end_date;
+
+                p.page_size = size;
 
                 p.page = 1; // Reset page on filter change
             },
@@ -2031,6 +2045,7 @@ fn Dashboard() -> impl IntoView {
                     date: start,
                     end_date: end,
                     page: 1,
+                    page_size: page_size.get(),
                     negative_query: "".to_string(),
                     use_llm: true,
                 });
@@ -2085,6 +2100,7 @@ fn Dashboard() -> impl IntoView {
                     end_date_filter
                         .get(),
                 page: 1,
+                page_size: page_size.get(),
                 negative_query: negative_query.get(),
                 use_llm: use_llm.get(),
             },
@@ -2118,6 +2134,7 @@ fn Dashboard() -> impl IntoView {
                 end_date: ""
                     .to_string(),
                 page: 1,
+                page_size: 51,
                 negative_query: ""
                     .to_string(),
                 use_llm: true,
@@ -2238,6 +2255,8 @@ fn Dashboard() -> impl IntoView {
                 set_negative_query
                 use_llm=use_llm.into()
                 set_use_llm
+                page_size=page_size.into()
+                set_page_size
             />
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
@@ -2272,10 +2291,10 @@ fn Dashboard() -> impl IntoView {
                                                     }
                                                 />
                                             </div>
-                                            <Pagination
+                                             <Pagination
                                                 current_page=page.into()
                                                 total_count=total_count
-                                                page_size=51
+                                                page_size=page_size.get()
                                                 on_page_change=Callback::new(on_page_change)
                                             />
                                         </div>
@@ -2661,6 +2680,8 @@ fn FilterBar(
     on_unload_model: Callback<()>,
     use_llm: Signal<bool>,
     set_use_llm: WriteSignal<bool>,
+    page_size: Signal<usize>,
+    set_page_size: WriteSignal<usize>,
 ) -> impl IntoView {
 
     let (
@@ -2827,6 +2848,24 @@ fn FilterBar(
                 />
             </div>
 
+            <div class="flex flex-col gap-1.5 flex-1 min-w-[100px] max-w-[120px]">
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30 ml-1">"Per Page"</label>
+                <select
+                    class="bg-obsidian-bg border border-white/10 rounded-xl px-3 py-2 text-sm text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-obsidian-accent/40 appearance-none cursor-pointer hover:border-white/20 transition-all"
+                    on:change=move |ev| {
+                        if let Ok(n) = event_target_value(&ev).parse::<usize>() {
+                            set_page_size.set(n);
+                        }
+                    }
+                    prop:value=move || page_size.get().to_string()
+                >
+                    <option value="12">"12 items"</option>
+                    <option value="24">"24 items"</option>
+                    <option value="51">"51 items"</option>
+                    <option value="100">"100 items"</option>
+                    <option value="200">"200 items"</option>
+                </select>
+            </div>
             <div class="flex flex-col gap-1.5 min-w-[300px] flex-[2]">
                 <div class="flex items-center justify-between ml-1">
                     <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/30">"Negative Filter (What to hide)"</label>
