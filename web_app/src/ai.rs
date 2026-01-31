@@ -2,6 +2,10 @@
 #![allow(unused)]
 
 /// This is the LLM functionality module of arxiv-daily. It provides self-written functionalities using candle to load and run gemma 3 270m IT Q5 K_M QAT model.
+/// Reference:
+/// https://github.com/ggml-org/llama.cpp/blob/3dd95914d09b155eed84664b9abdbbffae238738/src/models/gemma3.cpp
+/// https://github.com/google/gemma_pytorch/tree/014acb7ac4563a5f77c76d7ff98f31b568c16508/gemma
+/// https://arxiv.org/pdf/2503.19786
 
 #[cfg(feature = "ssr")]
 use std::path::Path;
