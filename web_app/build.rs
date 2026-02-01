@@ -1,5 +1,12 @@
 use std::path::Path;
+use std::sync::Arc;
 
+use num_bigint::BigInt;
+use num_bigint::Sign;
+use rssn::symbolic::calculus::differentiate;
+use rssn::symbolic::calculus::substitute;
+use rssn::symbolic::core::Expr;
+use rssn::symbolic::simplify_dag::simplify;
 use vergen_gitcl::BuildBuilder;
 use vergen_gitcl::CargoBuilder;
 use vergen_gitcl::Emitter;
@@ -186,5 +193,221 @@ fn main() -> Result<
         );
     }
 
+    // Surprise encryption logic
+    let surprise_toml_path =
+        if Path::new("surprise.toml")
+            .exists()
+        {
+
+            "surprise.toml"
+        } else {
+
+            "../surprise.toml"
+        };
+
+    if Path::new(surprise_toml_path)
+        .exists()
+    {
+
+        println!(
+            "cargo:rerun-if-changed={}",
+            surprise_toml_path
+        );
+
+        let content =
+            std::fs::read_to_string(
+                surprise_toml_path,
+            )?;
+
+        #[derive(
+            serde::Deserialize,
+        )]
+
+        struct Surprise {
+            key: String,
+            payload: String,
+        }
+
+        let surprise: Surprise =
+            toml::from_str(&content)?;
+
+        // Parse key
+        let (_, mut key_expr) = rssn::input::parser::parse_expr(&surprise.key)
+            .map_err(|e| format!("Failed to parse key: {}", e))?;
+
+        key_expr =
+            force_bigint(key_expr);
+
+        // 5th derivative
+        let mut deriv = key_expr;
+
+        for _ in 0 .. 5 {
+
+            deriv = differentiate(
+                &deriv,
+                "x",
+            );
+        }
+
+        deriv = simplify(&deriv)
+            .to_ast()
+            .map_err(|e| {
+                format!(
+                    "to_ast failed: {}",
+                    e
+                )
+            })?;
+
+        deriv = force_bigint(deriv);
+
+        // Convert payload to BigInt
+        let payload_num =
+            BigInt::from_bytes_be(
+                Sign::Plus,
+                surprise
+                    .payload
+                    .as_bytes(),
+            );
+
+        // Evaluate at P
+        // result = f(P)
+        let eval_expr = substitute(
+            &deriv,
+            "x",
+            &Expr::BigInt(payload_num),
+        );
+
+        let result_expr = simplify(
+            &eval_expr,
+        )
+        .to_ast()
+        .map_err(|e| {
+            format!(
+                "to_ast failed: {}",
+                e
+            )
+        })?;
+
+        let result_expr =
+            force_bigint(result_expr);
+
+        // Serialize
+        let assets_dir =
+            if Path::new("assets")
+                .exists()
+            {
+
+                "assets"
+            } else {
+
+                "../assets"
+            };
+
+        let surprise_bin_path =
+            Path::new(assets_dir)
+                .join("surprise.bin");
+
+        let encoded: Vec<u8> = bincode_next::serde::encode_to_vec(&result_expr, bincode_next::config::standard())
+            .map_err(|e| format!("Failed to encode: {}", e))?;
+
+        std::fs::write(
+            &surprise_bin_path,
+            encoded,
+        )?;
+
+        println!(
+            "cargo:warning=Surprise \
+             encrypted and saved to \
+             {:?}",
+            surprise_bin_path
+        );
+    }
+
     Ok(())
+}
+
+fn force_bigint(expr: Expr) -> Expr {
+
+    match expr {
+        | Expr::Constant(f)
+            if f.fract() == 0.0 =>
+        {
+
+            // Use i64 for small ones, or if we had num-traits we'd use from_f64
+            // For CAS coefficients, it's usually small.
+            Expr::BigInt(num_bigint::BigInt::from(f as i64))
+        },
+        | Expr::Add(a, b) => {
+            Expr::Add(
+                Arc::new(force_bigint(
+                    a.as_ref().clone(),
+                )),
+                Arc::new(force_bigint(
+                    b.as_ref().clone(),
+                )),
+            )
+        },
+        | Expr::Sub(a, b) => {
+            Expr::Sub(
+                Arc::new(force_bigint(
+                    a.as_ref().clone(),
+                )),
+                Arc::new(force_bigint(
+                    b.as_ref().clone(),
+                )),
+            )
+        },
+        | Expr::Mul(a, b) => {
+            Expr::Mul(
+                Arc::new(force_bigint(
+                    a.as_ref().clone(),
+                )),
+                Arc::new(force_bigint(
+                    b.as_ref().clone(),
+                )),
+            )
+        },
+        | Expr::Div(a, b) => {
+            Expr::Div(
+                Arc::new(force_bigint(
+                    a.as_ref().clone(),
+                )),
+                Arc::new(force_bigint(
+                    b.as_ref().clone(),
+                )),
+            )
+        },
+        | Expr::Power(a, b) => {
+            Expr::Power(
+                Arc::new(force_bigint(
+                    a.as_ref().clone(),
+                )),
+                Arc::new(force_bigint(
+                    b.as_ref().clone(),
+                )),
+            )
+        },
+        | Expr::Neg(a) => {
+            Expr::Neg(Arc::new(
+                force_bigint(
+                    a.as_ref().clone(),
+                ),
+            ))
+        },
+        | Expr::AddList(list) => {
+            Expr::AddList(
+                list.into_iter()
+                    .map(force_bigint)
+                    .collect(),
+            )
+        },
+        | Expr::MulList(list) => {
+            Expr::MulList(
+                list.into_iter()
+                    .map(force_bigint)
+                    .collect(),
+            )
+        },
+        | _ => expr,
+    }
 }

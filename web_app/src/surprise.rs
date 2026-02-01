@@ -1,2 +1,574 @@
-use rssn::input::*;
-use rssn::symbolic::core::*;
+use leptos::prelude::*;
+use num_bigint::BigInt;
+#[cfg(feature = "ssr")]
+use rssn::symbolic::core::Expr;
+
+#[cfg(feature = "ssr")]
+
+pub async fn decrypt_surprise_logic(
+    user_key: &str
+) -> Result<String, String> {
+
+    use std::path::Path;
+
+    use num_bigint::BigInt;
+    use rssn::symbolic::calculus::differentiate;
+    use rssn::symbolic::core::Expr;
+    use rssn::symbolic::simplify_dag::simplify;
+    use rssn::symbolic::solve::solve;
+
+    let (_, mut key_expr) = rssn::input::parser::parse_expr(user_key)
+        .map_err(|e| format!("Invalid key format: {}", e))?;
+
+    key_expr = force_bigint(key_expr);
+
+    log::info!(
+        "Parsed and forced key_expr: \
+         {}",
+        key_expr
+    );
+
+    let assets_dirs = [
+        "assets",
+        "../assets",
+        "public",
+        "../public",
+    ];
+
+    let mut bin_path = None;
+
+    for dir in assets_dirs {
+
+        let path = Path::new(dir)
+            .join("surprise.bin");
+
+        if path.exists() {
+
+            bin_path = Some(path);
+
+            break;
+        }
+    }
+
+    let path = bin_path.ok_or(
+        "Surprise data (surprise.bin) \
+         not found",
+    )?;
+
+    let bytes =
+        std::fs::read(path.clone())
+            .map_err(|e| {
+                format!(
+                    "Failed to read \
+                     surprise data: {}",
+                    e
+                )
+            })?;
+
+    log::info!(
+        "Read {} bytes from {:?}",
+        bytes.len(),
+        path
+    );
+
+    let decoded: (Expr, usize) = bincode_next::serde::decode_from_slice(&bytes, bincode_next::config::standard())
+        .map_err(|e| format!("Failed to deserialize: {}", e))?;
+
+    let encrypted_expr = decoded.0;
+
+    log::info!(
+        "Encrypted expr variant: {:?}",
+        match &encrypted_expr {
+            | Expr::BigInt(_) =>
+                "BigInt",
+            | Expr::Constant(_) =>
+                "Constant",
+            | _ => "Other",
+        }
+    );
+
+    log::info!(
+        "Encrypted expr value: {}",
+        encrypted_expr
+    );
+
+    let mut deriv = key_expr;
+
+    for _ in 0 .. 5 {
+
+        deriv =
+            differentiate(&deriv, "x");
+    }
+
+    deriv = simplify(&deriv)
+        .to_ast()
+        .unwrap_or_else(|_| {
+            simplify(&deriv)
+        });
+
+    deriv = force_bigint(deriv);
+
+    log::info!(
+        "Derivative expr: {}",
+        deriv
+    );
+
+    let mut real_roots = Vec::new();
+
+    // Strategy 1: BigInt-aware linear solve (exact for large integers)
+    if let Some(root) =
+        try_solve_linear_bigint(
+            &deriv,
+            &encrypted_expr,
+        )
+    {
+
+        log::info!(
+            "Solved via BigInt-aware \
+             linear strategy"
+        );
+
+        real_roots.push(root);
+    } else {
+
+        // Strategy 2: Standard solve (fallback)
+        let eq = Expr::new_sub(
+            deriv.clone(),
+            encrypted_expr.clone(),
+        );
+
+        let solutions = solve(&eq, "x");
+
+        log::info!(
+            "Found {} solutions via \
+             standard solve",
+            solutions.len()
+        );
+
+        for sol in solutions {
+
+            let s = simplify(&sol)
+                .to_ast()
+                .unwrap_or_else(|_| {
+                    simplify(&sol)
+                });
+
+            log::info!("Solution variant: {:?}", match &s {
+                Expr::BigInt(_) => "BigInt",
+                Expr::Constant(_) => "Constant",
+                Expr::Rational(_) => "Rational",
+                _ => "Other",
+            });
+
+            match s {
+                | Expr::BigInt(n) => {
+                    real_roots
+                        .push(n.clone())
+                },
+                | Expr::Rational(r) => {
+                    if r.is_integer() {
+
+                        real_roots.push(r.to_integer());
+                    }
+                },
+                | Expr::Constant(f) => {
+                    if (f - f.round())
+                        .abs()
+                        < 1e-6
+                    {
+
+                        if f.abs()
+                            < (i64::MAX
+                                as f64)
+                        {
+
+                            real_roots.push(BigInt::from(f.round() as i64));
+                        }
+                    }
+                },
+                | _ => {},
+            }
+        }
+    }
+
+    if real_roots.is_empty() {
+
+        return Err("No numerical \
+                    solutions found. \
+                    Is the key \
+                    correct?"
+            .to_string());
+    }
+
+    let target_num = &real_roots[0];
+
+    log::info!(
+        "Target num bytes (len={}): \
+         {:?}",
+        target_num
+            .to_bytes_be()
+            .1
+            .len(),
+        target_num
+            .to_bytes_be()
+            .1
+    );
+
+    let bytes = target_num
+        .to_bytes_be()
+        .1;
+
+    let message =
+        String::from_utf8_lossy(&bytes)
+            .to_string();
+
+    Ok(message)
+}
+
+#[server(DecryptSurprise, "/api")]
+
+pub async fn decrypt_surprise_server(
+    key: String
+) -> Result<String, ServerFnError> {
+
+    #[cfg(feature = "ssr")]
+    {
+
+        use crate::MODEL;
+
+        let raw_message =
+            decrypt_surprise_logic(
+                &key,
+            )
+            .await
+            .map_err(|e| {
+                ServerFnError::new(e)
+            })?;
+
+        log::info!(
+            "Surprise decrypted: {}",
+            raw_message
+        );
+
+        // Attempt AI interpretation
+        let model_arc = {
+
+            let model_lock =
+                MODEL.lock().await;
+
+            model_lock.clone()
+        };
+
+        if let Some(m) = model_arc {
+
+            let prompt = format!(
+                "<|user|>\nYou are a \
+                 helpful and creative \
+                 assistant. I have \
+                 decrypted a hidden \
+                 message from a \
+                 secret surprise box. \
+                 The message is: \
+                 \"{}\". Please \
+                 explain what this \
+                 means or give a \
+                 funny, creative \
+                 interpretation of it \
+                 in one or two \
+                 sentences. Keep it \
+                 surprising and \
+                 delightful!<|end|>\\
+                 n<|assistant|>\n",
+                raw_message
+            );
+
+            let res = tokio::task::spawn_blocking(move || {
+                let mut model = m.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
+                model.complete(&prompt, 150, || false)
+            }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
+
+            match res {
+                | Ok(
+                    interpretation,
+                ) => {
+                    Ok(interpretation
+                        .trim()
+                        .to_string())
+                },
+                | Err(e) => {
+
+                    log::error!("AI interpretation failed: {}", e);
+
+                    Ok(raw_message)
+                },
+            }
+        } else {
+
+            Ok(format!(
+                "(AI not loaded) {}",
+                raw_message
+            ))
+        }
+    }
+
+    #[cfg(not(feature = "ssr"))]
+    {
+
+        let _ = key;
+
+        Err(ServerFnError::new(
+            "Only available on SSR",
+        ))
+    }
+}
+
+#[component]
+
+pub fn SurpriseModal(
+    show: Signal<bool>,
+    on_close: Callback<()>,
+) -> impl IntoView {
+
+    let (key_input, set_key_input) =
+        signal("".to_string());
+
+    let decrypt_action =
+        Action::new(|key: &String| {
+
+            let key = key.clone();
+
+            async move {
+
+                decrypt_surprise_server(
+                    key,
+                )
+                .await
+            }
+        });
+
+    let result = decrypt_action.value();
+
+    let pending =
+        decrypt_action.pending();
+
+    view! {
+        <Show when=move || show.get()>
+            <div class="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
+                <div class="bg-obsidian-sidebar border border-white/10 w-full max-w-lg rounded-3xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
+                    <div class="p-8 space-y-6 text-center">
+                        <div class="flex items-center justify-between text-left">
+                            <h2 class="text-2xl font-black text-white tracking-tight">"Surprise Box"</h2>
+                            <button on:click=move |_| on_close.run(()) class="text-white/40 hover:text-white transition-colors text-2xl">"✕"</button>
+                        </div>
+
+                        <div class="py-4 flex justify-center">
+                            <div class="w-16 h-16 bg-gradient-to-br from-obsidian-accent to-obsidian-accent/50 rounded-2xl flex items-center justify-center shadow-lg shadow-obsidian-accent/20 animate-bounce">
+                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                            </div>
+                        </div>
+
+                        <div class="space-y-4">
+                            <p class="text-obsidian-text/60 text-sm">"Enter your mathematical key to unlock the secret."</p>
+                            <input
+                                type="text"
+                                placeholder="e.g. x^6"
+                                class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-obsidian-accent/50 outline-none transition-all placeholder:text-white/10 text-center font-mono"
+                                on:input=move |ev| set_key_input.set(event_target_value(&ev))
+                                prop:value=key_input
+                                on:keydown=move |ev| {
+                                    if ev.key() == "Enter" {
+                                        let _ = decrypt_action.dispatch(key_input.get());
+                                    }
+                                }
+                            />
+                            <button
+                                on:click=move |_| { let _ = decrypt_action.dispatch(key_input.get()); }
+                                class="w-full bg-obsidian-accent hover:bg-obsidian-accent/80 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-obsidian-accent/20 disabled:opacity-50 active:scale-95"
+                                disabled=pending
+                            >
+                                <Show when=move || pending.get() fallback=|| "Unlock Surprise">"Unlocking..."</Show>
+                            </button>
+                        </div>
+
+                        <Transition fallback=|| ()>
+                            {move || result.get().map(|res| match res {
+                                Ok(msg) => view! {
+                                    <div class="mt-6 p-8 bg-gradient-to-br from-obsidian-accent/10 to-transparent border border-obsidian-accent/20 rounded-2xl animate-in slide-in-from-bottom-8 zoom-in-90 duration-700 relative group">
+                                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-obsidian-accent text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full text-white">"Decrypted"</div>
+                                        <p class="text-obsidian-accent leading-relaxed italic text-lg font-medium">"\"" {msg} "\""</p>
+                                        <div class="mt-4 flex justify-center gap-1">
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping"></div>
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping delay-100"></div>
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping delay-200"></div>
+                                        </div>
+                                    </div>
+                                }.into_any(),
+                                Err(e) => view! {
+                                    <div class="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl animate-shake duration-300">
+                                        <p class="text-red-400 text-sm font-bold">{e.to_string()}</p>
+                                    </div>
+                                }.into_any(),
+                            })}
+                        </Transition>
+                    </div>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+#[cfg(feature = "ssr")]
+
+fn try_solve_linear_bigint(
+    deriv: &Expr,
+    target: &Expr,
+) -> Option<BigInt> {
+
+    use num_bigint::BigInt;
+    use rssn::symbolic::calculus::substitute;
+    use rssn::symbolic::simplify_dag::simplify;
+
+    log::info!(
+        "try_solve_linear_bigint start"
+    );
+
+    let f0 = simplify(&substitute(
+        deriv,
+        "x",
+        &Expr::BigInt(0.into()),
+    ));
+
+    let f1 = simplify(&substitute(
+        deriv,
+        "x",
+        &Expr::BigInt(1.into()),
+    ));
+
+    let f0_ast = f0
+        .to_ast()
+        .unwrap_or(f0);
+
+    let f1_ast = f1
+        .to_ast()
+        .unwrap_or(f1);
+
+    log::info!(
+        "f(0) AST: {:?}, f(1) AST: \
+         {:?}",
+        f0_ast,
+        f1_ast
+    );
+
+    match (
+        force_bigint(f0_ast),
+        force_bigint(f1_ast),
+        force_bigint(target.clone()),
+    ) {
+        | (
+            Expr::BigInt(b),
+            Expr::BigInt(a_plus_b),
+            Expr::BigInt(target_val),
+        ) => {
+
+            let a = a_plus_b - &b;
+
+            log::info!(
+                "Linear extraction: \
+                 a={}, b={}, target={}",
+                a,
+                b,
+                target_val
+            );
+
+            if a == BigInt::from(0) {
+
+                log::warn!(
+                    "Slope 'a' is \
+                     zero, cannot \
+                     solve linear \
+                     equation"
+                );
+
+                return None;
+            }
+
+            let numerator =
+                target_val - b;
+
+            if &numerator % &a
+                == BigInt::from(0)
+            {
+
+                Some(numerator / a)
+            } else {
+
+                log::warn!(
+                    "Numerator {} not \
+                     divisible by {}",
+                    numerator,
+                    a
+                );
+
+                None
+            }
+        },
+        | (v0, v1, vt) => {
+
+            log::warn!(
+                "force_bigint failed \
+                 to yield BigInts: \
+                 f0={:?}, f1={:?}, \
+                 target={:?}",
+                match v0 {
+                    | Expr::BigInt(
+                        _,
+                    ) => "BigInt",
+                    | _ => "Other",
+                },
+                match v1 {
+                    | Expr::BigInt(
+                        _,
+                    ) => "BigInt",
+                    | _ => "Other",
+                },
+                match vt {
+                    | Expr::BigInt(
+                        _,
+                    ) => "BigInt",
+                    | _ => "Other",
+                }
+            );
+
+            None
+        },
+    }
+}
+
+#[cfg(feature = "ssr")]
+
+fn force_bigint(expr: Expr) -> Expr {
+
+    use std::sync::Arc;
+
+    use rssn::symbolic::core::Expr;
+
+    let expr = expr
+        .to_ast()
+        .unwrap_or(expr);
+
+    match expr {
+        Expr::Constant(f) if f.fract() == 0.0 => Expr::BigInt(num_bigint::BigInt::from(f as i64)),
+        Expr::Rational(r) if r.is_integer() => Expr::BigInt(r.to_integer()),
+        Expr::Add(a, b) => Expr::Add(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
+        Expr::Sub(a, b) => Expr::Sub(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
+        Expr::Mul(a, b) => Expr::Mul(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
+        Expr::Div(a, b) => Expr::Div(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
+        Expr::Power(a, b) => Expr::Power(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
+        Expr::Neg(a) => Expr::Neg(Arc::new(force_bigint(a.as_ref().clone()))),
+        Expr::AddList(list) => Expr::AddList(list.into_iter().map(force_bigint).collect()),
+        Expr::MulList(list) => Expr::MulList(list.into_iter().map(force_bigint).collect()),
+        _ => expr,
+    }
+}

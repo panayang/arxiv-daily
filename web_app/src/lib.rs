@@ -1090,6 +1090,8 @@ async fn get_db_path()
 #[cfg(feature = "ssr")]
 mod ai;
 
+mod surprise;
+
 // Restore generation tracking for explicit invalidation
 #[cfg(feature = "ssr")]
 
@@ -2036,6 +2038,11 @@ fn Dashboard() -> impl IntoView {
         signal(false);
 
     let (
+        show_surprise,
+        set_show_surprise,
+    ) = signal(false);
+
+    let (
         hidden_paper_ids,
         set_hidden_paper_ids,
     ) = signal(
@@ -2537,6 +2544,7 @@ fn Dashboard() -> impl IntoView {
                 on_reset=Callback::new(on_reset)
                 on_edit_config=Callback::new(move |_| set_show_config.set(true))
                 on_about=Callback::new(move |_| set_show_about.set(true))
+                on_surprise=Callback::new(move |_| set_show_surprise.set(true))
                 on_unload_model=Callback::new(move |_| { unload_action.dispatch(()); })
                 end_date_filter=end_date_filter.into()
                 set_end_date_filter
@@ -2550,6 +2558,7 @@ fn Dashboard() -> impl IntoView {
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
             <AboutModal show=show_about.into() on_close=Callback::new(move |_| set_show_about.set(false))/>
+            <surprise::SurpriseModal show=show_surprise.into() on_close=Callback::new(move |_| set_show_surprise.set(false))/>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
                 <Transition fallback=move || view! {
@@ -2972,6 +2981,7 @@ fn FilterBar(
     on_reset: Callback<()>,
     on_edit_config: Callback<()>,
     on_about: Callback<()>,
+    on_surprise: Callback<()>,
     on_unload_model: Callback<()>,
     use_llm: Signal<bool>,
     set_use_llm: WriteSignal<bool>,
@@ -3255,6 +3265,17 @@ fn FilterBar(
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     "About"
+                </button>
+
+                <button
+                    on:click=move |_| on_surprise.run(())
+                    class="h-11 px-5 bg-obsidian-accent/10 text-obsidian-accent text-xs font-black uppercase tracking-widest rounded-xl hover:bg-obsidian-accent/20 transition-all flex items-center justify-center gap-2 border border-obsidian-accent/20"
+                    title="Unlock Secret Surprise"
+                >
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    </svg>
+                    "Surprise"
                 </button>
 
                 <button

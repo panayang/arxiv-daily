@@ -11762,6 +11762,7 @@ dependencies = [
  "memmap2",
  "mime_guess",
  "mistralrs",
+ "num-bigint",
  "open",
  "pulp 0.22.2",
  "rayon",
