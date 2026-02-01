@@ -29,6 +29,10 @@ use candle_core::quantized::QMatMul;
 #[cfg(feature = "ssr")]
 use candle_core::quantized::gguf_file;
 #[cfg(feature = "ssr")]
+use pulp::Arch;
+#[cfg(feature = "ssr")]
+use rayon::prelude::*;
+#[cfg(feature = "ssr")]
 use simd_json;
 #[cfg(feature = "ssr")]
 use tokenizers::Tokenizer;
@@ -129,6 +133,90 @@ impl RmsNorm {
 
         let x_dtype = x.dtype();
 
+        let hidden_size =
+            x.dim(D::Minus1)?;
+
+        // Performance optimization:
+        // If we are on CPU and using F32, we can use pulp to compute RMS in a single pass
+        // instead of multiple intermediate tensors (sqr, sum, div, sqrt, etc.)
+        if x.device().is_cpu()
+            && x_dtype == DType::F32
+        {
+
+            let dims = x.dims();
+
+            let x_vec = x
+                .flatten_all()?
+                .to_vec1::<f32>()?;
+
+            let weight_vec = self
+                .weight
+                .to_vec1::<f32>()?;
+
+            let mut result =
+                x_vec.clone();
+
+            let arch = Arch::new();
+
+            let hidden_size =
+                *dims.last().unwrap();
+
+            let num_elements =
+                x_vec.len();
+
+            let num_rows = num_elements
+                / hidden_size;
+
+            arch.dispatch(|| {
+                // Use rayon to process rows in parallel if there are multiple rows (e.g., initial prompt)
+                let row_op = |r: usize| {
+                    let start = r * hidden_size;
+                    let end = start + hidden_size;
+                    let row = &x_vec[start..end];
+
+                    let mut sum_sq = 0.0f32;
+                    // Manual SIMD loop (compiler usually vectorizes this within arch.dispatch)
+                    // We can also use pulp vectors explicitly if we want more control
+                    for chunk in row.chunks_exact(8) {
+                        sum_sq += chunk[0] * chunk[0];
+                        sum_sq += chunk[1] * chunk[1];
+                        sum_sq += chunk[2] * chunk[2];
+                        sum_sq += chunk[3] * chunk[3];
+                        sum_sq += chunk[4] * chunk[4];
+                        sum_sq += chunk[5] * chunk[5];
+                        sum_sq += chunk[6] * chunk[6];
+                        sum_sq += chunk[7] * chunk[7];
+                    }
+                    for &val in row.chunks_exact(8).remainder() {
+                        sum_sq += val * val;
+                    }
+
+                    let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                    let res_row_ptr = result.as_ptr() as *mut f32;
+
+                    unsafe {
+                        let res_row = std::slice::from_raw_parts_mut(res_row_ptr.add(start), hidden_size);
+                        for i in 0..hidden_size {
+                            res_row[i] = row[i] * inv_norm * weight_vec[i];
+                        }
+                    }
+                };
+
+                if num_rows > 1 {
+                    (0..num_rows).into_par_iter().for_each(row_op);
+                } else {
+                    (0..num_rows).for_each(row_op);
+                }
+            });
+
+            return Tensor::from_vec(
+                result,
+                dims,
+                x.device(),
+            );
+        }
+
+        // Fallback for other dtypes/devices
         let internal_dtype =
             match x_dtype {
                 | DType::F16
@@ -137,9 +225,6 @@ impl RmsNorm {
                 },
                 | d => d,
             };
-
-        let hidden_size =
-            x.dim(D::Minus1)?;
 
         let x =
             x.to_dtype(internal_dtype)?;
@@ -150,7 +235,6 @@ impl RmsNorm {
             / hidden_size as f64)?;
 
         let x_normed = x
-            .to_dtype(internal_dtype)?
             .broadcast_div(
                 &(norm_x + self.eps)?
                     .sqrt()?,
@@ -259,11 +343,19 @@ impl RotaryEmbedding {
             seq_len,
         )?;
 
-        let q_embed = candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin)?;
+        let (q_embed, k_embed) =
+            rayon::join(
+                || {
 
-        let k_embed = candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin)?;
+                    candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin)
+                },
+                || {
 
-        Ok((q_embed, k_embed))
+                    candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin)
+                },
+            );
+
+        Ok((q_embed?, k_embed?))
     }
 }
 
@@ -283,13 +375,19 @@ impl MLP {
         xs: &Tensor,
     ) -> Result<Tensor> {
 
-        let lhs = self.gate_proj.forward(xs)?.apply(&candle_nn::Activation::NewGelu)?;
+        let (lhs, rhs) = rayon::join(
+            || {
 
-        let rhs = self
-            .up_proj
-            .forward(xs)?;
+                self.gate_proj.forward(xs)?.apply(&candle_nn::Activation::NewGelu)
+            },
+            || {
 
-        (lhs * rhs)?.apply(
+                self.up_proj
+                    .forward(xs)
+            },
+        );
+
+        (lhs? * rhs?)?.apply(
             &self.down_proj.inner,
         )
     }
@@ -325,17 +423,34 @@ impl Attention {
         let (b_sz, q_len, _) =
             xs.dims3()?;
 
-        let q = self
-            .q_proj
-            .forward(xs)?;
+        let (q, (k, v)) = rayon::join(
+            || {
 
-        let k = self
-            .k_proj
-            .forward(xs)?;
+                self.q_proj
+                    .forward(xs)
+            },
+            || {
 
-        let v = self
-            .v_proj
-            .forward(xs)?;
+                rayon::join(
+                    || {
+
+                        self.k_proj
+                            .forward(xs)
+                    },
+                    || {
+
+                        self.v_proj
+                            .forward(xs)
+                    },
+                )
+            },
+        );
+
+        let q = q?;
+
+        let k = k?;
+
+        let v = v?;
 
         let q = q
             .reshape((
@@ -958,6 +1073,15 @@ impl Gemma3 {
         self.initialized = v;
     }
 
+    /// Generate text completion from the model
+    ///
+    /// Performance optimizations applied:
+    /// - Pre-allocated string capacity to reduce reallocations
+    /// - Early EOS token detection before decoding
+    /// - Single decode call per token (removed redundant debug decode)
+    /// - Optimized termination checks
+    /// - KV cache reuse for sequential generation
+
     pub fn complete(
         &mut self,
         prompt: &str,
@@ -979,8 +1103,12 @@ impl Gemma3 {
             .get_ids()
             .to_vec();
 
+        // Pre-allocate string capacity for better performance
+        // Assuming average of 4 chars per token
         let mut generated =
-            String::new();
+            String::with_capacity(
+                max_tokens * 4,
+            );
 
         // println!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
 
@@ -1026,33 +1154,23 @@ impl Gemma3 {
             let logits_f32 = logits
                 .to_dtype(DType::F32)?;
 
-            // Greedily pick the next token
+            // Greedily pick the next token (optimized: single operation)
             let next_token = logits_f32
                 .argmax(D::Minus1)?
                 .to_scalar::<u32>()?;
 
-            let max_logit = logits_f32
-                .max(D::Minus1)?
-                .to_scalar::<f32>()?;
+            // Early termination check before decoding (performance optimization)
+            // Check for common EOS tokens first
+            if next_token == 1
+                || next_token == 107
+            {
 
-            if i % 1 == 0 {
-
-                let token_text = self
-                    .tokenizer
-                    .decode(
-                        &[next_token],
-                        true,
-                    )
-                    .unwrap_or_default(
-                    );
-                // println!(
-                //     "    DEBUG: Step {:2}, Token: {} ({}), Max Logit: {:.2}",
-                //     i, next_token, token_text.replace("\n", "\\n"), max_logit
-                // );
+                break;
             }
 
             tokens_vec.push(next_token);
 
+            // Decode token (single call, no redundant decode)
             let token_text = self
                 .tokenizer
                 .decode(
@@ -1063,19 +1181,18 @@ impl Gemma3 {
                     anyhow::Error::msg,
                 )?;
 
-            generated
-                .push_str(&token_text);
-
+            // Check for end markers before appending (optimization)
             if token_text.contains(
                 "<end_of_turn>",
             ) || token_text
                 .contains("<|im_end|>")
-                || next_token == 1
-                || next_token == 107
             {
 
                 break;
             }
+
+            generated
+                .push_str(&token_text);
         }
 
         // println!("🏁 Generation complete.");

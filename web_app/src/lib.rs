@@ -1391,7 +1391,7 @@ pub async fn stream_ai_filter(
                     };
 
                     // 3. Yield to prevent CPU starvation on single-threaded runtimes or heavy load
-                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+                    tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
 
                     let summary_snippet = if paper.summary.len() > 300 {
                         format!("{}...", &paper.summary[0..300])
@@ -1453,9 +1453,9 @@ pub async fn stream_ai_filter(
                  }
             });
 
-        Ok(ByteStream::new(
+        return Ok(ByteStream::new(
             stream,
-        ))
+        ));
     }
 
     #[cfg(not(feature = "ssr"))]
@@ -2656,11 +2656,11 @@ fn PaperCard(
                 </span>
             </div>
 
-            <h3 class="text-xl font-bold text-obsidian-heading leading-tight group-hover:text-obsidian-accent transition-colors mb-2">
+            <h3 class="text-xl font-bold text-obsidian-heading leading-tight group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-obsidian-accent group-hover:to-obsidian-accent/70 transition-all duration-300 mb-2 relative z-10">
                 <a
                     href=url.clone()
                     target="_blank"
-                    class="hover:underline decoration-obsidian-accent/30 underline-offset-4"
+                    class="hover:underline decoration-obsidian-accent/40 decoration-2 underline-offset-4 transition-all"
                     inner_html=move || render_math(&title)
                 ></a>
             </h3>

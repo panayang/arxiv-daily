@@ -3,7 +3,9 @@
 @theme {
   --color-obsidian-bg: #1a1b1e;
   --color-obsidian-sidebar: #25262b;
+  --color-obsidian-card: #2c2d32;
   --color-obsidian-accent: #5c7cfa;
+  --color-obsidian-accent-light: #748ffc;
   --color-obsidian-text: #c1c2c5;
   --color-obsidian-heading: #ffffff;
 }
@@ -12,5 +14,75 @@
   body {
     @apply bg-obsidian-bg text-obsidian-text selection:bg-obsidian-accent/30;
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+  }
+}
+
+@layer utilities {
+  /* Glassmorphism effect */
+  .glass {
+    background: rgba(255, 255, 255, 0.05);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  /* Animated gradient background */
+  .gradient-animate {
+    background: linear-gradient(45deg, #5c7cfa, #748ffc, #5c7cfa);
+    background-size: 200% 200%;
+    animation: gradient-shift 3s ease infinite;
+  }
+  
+  /* Shimmer loading effect */
+  .shimmer {
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  
+  /* Pulse glow effect */
+  .pulse-glow {
+    animation: pulse-glow 2s ease-in-out infinite;
+  }
+  
+  /* Float animation */
+  .float {
+    animation: float 3s ease-in-out infinite;
+  }
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 20px rgba(92, 124, 250, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 30px rgba(92, 124, 250, 0.6);
+  }
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
   }
 }
