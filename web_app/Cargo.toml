@@ -138,6 +138,7 @@ bincode-next = { version = "2.0", features = ["serde"] }
 tokenizers = { version = "0.22" }
 serde_json = "1.0"
 simd-json = "0.17"
+rssn = { version = "0.2", features = ["full"] }
 vergen = { version = "9", features = [
     "build",
     "cargo",
