@@ -9016,24 +9016,6 @@ checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
 
 [[package]]
 name = "scraper"
-version = "0.9.0"
-dependencies = [
- "chrono",
- "feed-rs",
- "rayon",
- "reqwest 0.13.1",
- "serde",
- "serde_json",
- "shared",
- "sqlx",
- "tokio",
- "toml",
- "vergen",
- "vergen-gitcl",
-]
-
-[[package]]
-name = "scraper"
 version = "0.19.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "761fb705fdf625482d2ed91d3f0559dcfeab2798fe2771c69560a774865d0802"
@@ -9061,6 +9043,24 @@ dependencies = [
  "precomputed-hash",
  "selectors 0.33.0",
  "tendril 0.4.3",
+]
+
+[[package]]
+name = "scraper"
+version = "1.0.0"
+dependencies = [
+ "chrono",
+ "feed-rs",
+ "rayon",
+ "reqwest 0.13.1",
+ "serde",
+ "serde_json",
+ "shared",
+ "sqlx",
+ "tokio",
+ "toml",
+ "vergen",
+ "vergen-gitcl",
 ]
 
 [[package]]
@@ -9496,7 +9496,7 @@ dependencies = [
 
 [[package]]
 name = "shared"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "bitcode",
  "chrono",
@@ -11733,7 +11733,7 @@ dependencies = [
 
 [[package]]
 name = "web_app"
-version = "0.9.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "axum",

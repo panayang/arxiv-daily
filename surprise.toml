@@ -1,2 +1,2 @@
-key = "x^8 +x^7 + x^6 + x^5"
+key = "x^8 + sin(x)"
 payload = "A very secret surprise message!"

@@ -426,6 +426,7 @@ fn try_solve_bigint(
 ) -> Option<BigInt> {
 
     use num_bigint::BigInt;
+    use num_traits::Signed;
     use rssn::symbolic::calculus::substitute;
     use rssn::symbolic::simplify_dag::simplify;
 
@@ -434,68 +435,160 @@ fn try_solve_bigint(
          (brute-force strategy) start"
     );
 
-    let target_val = match force_bigint(
-        target.clone(),
-    ) {
-        | Expr::BigInt(n) => n,
-        | _ => return None,
-    };
+    // Normalize target for comparison: simplify -> force_bigint
+    // This ensures both the evaluated derivative and the target are in the same canonical form
+    let normalized_target =
+        force_bigint(
+            simplify(target)
+                .to_ast()
+                .unwrap_or(
+                    target.clone(),
+                ),
+        );
 
-    // Since we now use 1-byte chunks with a 0x01 sentinel,
-    // x will always be in the range [256, 511].
-    // This brute-force approach is foolproof for any complex key.
-    for val in 0 ..= 255 {
+    // If target is a BigInt, we extract it for fuzzy comparison.
+    let target_bigint =
+        if let Expr::BigInt(ref b) =
+            normalized_target
+        {
 
-        let x_guess =
-            BigInt::from(256 + val);
+            Some(b.clone())
+        } else {
 
-        let eval =
-            simplify(&substitute(
-                deriv,
+            log::debug!(
+                "Target is complex: \
+                 {:?}. Using \
+                 structural matching.",
+                normalized_target
+            );
+
+            None
+        };
+
+    // Pre-simplify the derivative to speed up substitution in the loop
+    let simplified_deriv =
+        simplify(deriv)
+            .to_ast()
+            .unwrap_or(deriv.clone());
+
+    use rayon::prelude::*;
+
+    // Parallel brute-force search
+    // We can search the range [0, 255] in parallel
+    let result = (0 ..= 255)
+        .into_par_iter()
+        .find_map_any(|val| {
+
+            let x_guess =
+                BigInt::from(256 + val); // range [256, 511]
+
+            let eval_expr = substitute(
+                &simplified_deriv,
                 "x",
                 &Expr::BigInt(
                     x_guess.clone(),
                 ),
-            ));
+            );
 
-        if let Expr::BigInt(res) =
-            force_bigint(eval)
-        {
+            let eval_res =
+                force_bigint(eval_expr);
 
-            if res == target_val {
+            if let (
+                Expr::BigInt(res_val),
+                Some(target_val),
+            ) = (
+                &eval_res,
+                &target_bigint,
+            ) {
+
+                if (res_val
+                    - target_val)
+                    .abs()
+                    <= BigInt::from(1)
+                {
+
+                    return Some(
+                        x_guess,
+                    );
+                }
+            }
+
+            if &eval_res
+                == &normalized_target
+            {
 
                 return Some(x_guess);
             }
-        }
+
+            None
+        });
+
+    if result.is_some() {
+
+        return result;
     }
+
+    log::info!(
+        "Brute-force failed to find \
+         solution in [0, 255]"
+    );
 
     // Fallback search for larger ranges if needed (e.g. 2-byte chunks)
-    for val in 0 ..= 65535 {
+    let result_large = (0 ..= 65535)
+        .into_par_iter()
+        .find_map_any(|val| {
 
-        let x_guess =
-            BigInt::from(65536 + val);
+            let x_guess = BigInt::from(
+                65536 + val,
+            );
 
-        let eval =
-            simplify(&substitute(
-                deriv,
+            let eval_expr = substitute(
+                &simplified_deriv,
                 "x",
                 &Expr::BigInt(
                     x_guess.clone(),
                 ),
-            ));
+            );
 
-        if let Expr::BigInt(res) =
-            force_bigint(eval)
-        {
+            let eval_res =
+                force_bigint(eval_expr);
 
-            if res == target_val {
+            if let (
+                Expr::BigInt(res_val),
+                Some(target_val),
+            ) = (
+                &eval_res,
+                &target_bigint,
+            ) {
+
+                if (res_val
+                    - target_val)
+                    .abs()
+                    <= BigInt::from(1)
+                {
+
+                    return Some(
+                        x_guess,
+                    );
+                }
+            }
+
+            if &eval_res
+                == &normalized_target
+            {
 
                 return Some(x_guess);
             }
-        }
+
+            None
+        });
+
+    if result_large.is_some() {
+
+        return result_large;
     }
 
-    log::warn!(
+    log::info!(
         "Brute-force failed to find \
          solution in [256, 131071]"
     );
@@ -506,77 +599,286 @@ fn try_solve_bigint(
 
 #[cfg(feature = "ssr")]
 
-fn force_bigint(expr: Expr) -> Expr {
+fn force_bigint(
+    root_expr: Expr
+) -> Expr {
 
     use std::sync::Arc;
 
     use num_traits::ToPrimitive;
     use rssn::symbolic::core::Expr;
 
-    let expr = expr
+    // We start by unwrapping the AST if needed
+    let root = root_expr
         .to_ast()
-        .unwrap_or(expr);
+        .unwrap_or(root_expr.clone());
 
-    match expr {
-        Expr::Constant(f) if f.fract() == 0.0 => Expr::BigInt(num_bigint::BigInt::from(f as i64)),
-        Expr::Rational(r) if r.is_integer() => Expr::BigInt(r.to_integer()),
-        Expr::Add(a, b) => {
-            let lhs = force_bigint(a.as_ref().clone());
-            let rhs = force_bigint(b.as_ref().clone());
-            match (lhs, rhs) {
-                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la + lb),
-                (l, r) => Expr::Add(Arc::new(l), Arc::new(r)),
-            }
-        },
-        Expr::Sub(a, b) => {
-            let lhs = force_bigint(a.as_ref().clone());
-            let rhs = force_bigint(b.as_ref().clone());
-            match (lhs, rhs) {
-                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la - lb),
-                (l, r) => Expr::Sub(Arc::new(l), Arc::new(r)),
-            }
-        },
-        Expr::Mul(a, b) => {
-            let lhs = force_bigint(a.as_ref().clone());
-            let rhs = force_bigint(b.as_ref().clone());
-            match (lhs, rhs) {
-                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la * lb),
-                (l, r) => Expr::Mul(Arc::new(l), Arc::new(r)),
-            }
-        },
-        Expr::Div(a, b) => {
-            let lhs = force_bigint(a.as_ref().clone());
-            let rhs = force_bigint(b.as_ref().clone());
-            match (lhs, rhs) {
-                (Expr::BigInt(la), Expr::BigInt(lb)) if &la % &lb == BigInt::from(0) => Expr::BigInt(la / lb),
-                (l, r) => Expr::Div(Arc::new(l), Arc::new(r)),
-            }
-        },
-        Expr::Power(a, b) => {
-            let lhs = force_bigint(a.as_ref().clone());
-            let rhs = force_bigint(b.as_ref().clone());
-            match (lhs, rhs) {
-                (Expr::BigInt(base), Expr::BigInt(exp)) => {
-                    if let Some(e) = exp.to_u32() {
-                        Expr::BigInt(base.pow(e))
-                    } else if exp == BigInt::from(0) {
-                        Expr::BigInt(BigInt::from(1))
-                    } else {
-                        Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp)))
+    // Stack for post-order traversal simulation
+    // (Node, visited_children)
+    // If visited_children is true, we pop input from output stack and compute
+    let mut visit_stack =
+        vec![(root, false)];
+
+    let mut output_stack: Vec<Expr> =
+        Vec::new();
+
+    while let Some((expr, visited)) =
+        visit_stack.pop()
+    {
+
+        if visited {
+
+            // Children have been processed and are on output_stack.
+            // Reconstruct and optimize.
+            match expr {
+                Expr::Add(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
+                        (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
-                }
-                (l, r) => Expr::Power(Arc::new(l), Arc::new(r)),
+                },
+                Expr::Sub(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
+                        (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
+                    }
+                },
+                Expr::Mul(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
+                        (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
+                    }
+                },
+                Expr::Div(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(la), Expr::BigInt(lb)) if &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
+                        (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
+                    }
+                },
+                Expr::Power(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                            if let Some(e) = exp.to_u32() {
+                                output_stack.push(Expr::BigInt(base.pow(e)));
+                            } else if exp == BigInt::from(0) {
+                                output_stack.push(Expr::BigInt(BigInt::from(1)));
+                            } else {
+                                output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
+                            }
+                        }
+                        (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
+                    }
+                },
+                Expr::LogBase(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Neg(_) => {
+                    let inner = output_stack.pop().unwrap();
+                    match inner {
+                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
+                        other => output_stack.push(Expr::Neg(Arc::new(other))),
+                    }
+                },
+                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
+                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
+                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
+                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
+                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
+                Expr::Abs(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Abs(Arc::new(v))); },
+                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::AddList(list) => {
+                    let len = list.len();
+                    // Items are stuck on output stack in reverse order of processing?
+                    // We pushed children in reverse order so they were popped in order.
+                    // So key is: push children C, B, A  -> pops A, B, C.
+                    // Wait, we push onto visit_stack. Last pushed is popped first.
+                    // If we push A, then B. B is processed first. Result B is on stack. Then A. Result A on stack.
+                    // So output stack has [.., Result B, Result A].
+                    // We need to reverse taking them off.
+
+                    let mut new_list = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        new_list.push(output_stack.pop().unwrap());
+                    }
+                    new_list.reverse();
+                    output_stack.push(Expr::AddList(new_list));
+                },
+                Expr::MulList(list) => {
+                    let len = list.len();
+                    let mut new_list = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        new_list.push(output_stack.pop().unwrap());
+                    }
+                    new_list.reverse();
+                    output_stack.push(Expr::MulList(new_list));
+                },
+                // Leaves already handled when !visited
+                _ => unreachable!("Should not visit leaves in post-process"),
             }
-        },
-        Expr::Neg(a) => {
-            let inner = force_bigint(a.as_ref().clone());
-            match inner {
-                Expr::BigInt(n) => Expr::BigInt(-n),
-                other => Expr::Neg(Arc::new(other)),
+        } else {
+
+            // First time seeing this node.
+            // Check if it's a leaf that we can process immediately
+            let processed_leaf = match &expr {
+                Expr::Constant(f) if f.fract() == 0.0 => Some(Expr::BigInt(num_bigint::BigInt::from(*f as i64))),
+                Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())),
+                // Other leaves pass through
+                Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => Some(expr.clone()),
+                _ => None,
+            };
+
+            if let Some(leaf) =
+                processed_leaf
+            {
+
+                output_stack.push(leaf);
+
+                continue;
             }
-        },
-        Expr::AddList(list) => Expr::AddList(list.into_iter().map(force_bigint).collect()),
-        Expr::MulList(list) => Expr::MulList(list.into_iter().map(force_bigint).collect()),
-        _ => expr,
+
+            // It's a non-leaf node. Push back with visited=true, then children.
+            // We want to process Left then Right.
+            // Stack is LIFO. So push Right then Left.
+            // Then Left is popped first, processed, output on stack.
+            // Then Right is popped, processed, output on stack.
+            // So output_stack will have [L_res, R_res].
+
+            // However, we need to ownership of inner Arcs.
+            // The expr we have is the one we will match on later.
+            // clone children
+
+            // Fix borrow checker errors by using ref and avoiding partial moves
+
+            match &expr {
+                | Expr::Add(a, b)
+                | Expr::Sub(a, b)
+                | Expr::Mul(a, b)
+                | Expr::Div(a, b)
+                | Expr::Power(a, b)
+                | Expr::LogBase(
+                    a,
+                    b,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    let b = b.as_ref();
+
+                    let a = a.as_ref();
+
+                    let b_expr = b
+                        .clone()
+                        .to_ast()
+                        .unwrap_or(
+                            b.clone(),
+                        );
+
+                    let a_expr = a
+                        .clone()
+                        .to_ast()
+                        .unwrap_or(
+                            a.clone(),
+                        );
+
+                    visit_stack.push((
+                        b_expr,
+                        false,
+                    ));
+
+                    visit_stack.push((
+                        a_expr,
+                        false,
+                    ));
+                },
+                | Expr::Neg(a)
+                | Expr::Sin(a)
+                | Expr::Cos(a)
+                | Expr::Tan(a)
+                | Expr::Exp(a)
+                | Expr::Log(a)
+                | Expr::Abs(a)
+                | Expr::Sqrt(a) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    let a = a.as_ref();
+
+                    let a_expr = a
+                        .clone()
+                        .to_ast()
+                        .unwrap_or(
+                            a.clone(),
+                        );
+
+                    visit_stack.push((
+                        a_expr,
+                        false,
+                    ));
+                },
+                | Expr::AddList(
+                    list,
+                )
+                | Expr::MulList(
+                    list,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    // We want results [0, 1, 2].
+                    // If we push 2, 1, 0.
+                    // 0 pops, Res0. 1 pops, Res1. 2 pops, Res2.
+                    // Output: [.., Res0, Res1, Res2].
+                    // Then we can pop them in reverse to build vector.
+
+                    // So we push in reverse order (e.g. 5, 4... 0).
+                    // Iterator is 0..N. .rev() gives N-1..0.
+                    for item in list
+                        .iter()
+                        .rev()
+                    {
+
+                        let it = item.clone().to_ast().unwrap_or(item.clone());
+
+                        visit_stack
+                            .push((
+                                it,
+                                false,
+                            ));
+                    }
+                },
+                | _ => {
+
+                    unreachable!(
+                    "Leaves handled \
+                     above"
+                )
+                },
+            }
+        }
     }
+
+    output_stack
+        .pop()
+        .unwrap_or(root_expr) // Should be exactly one item if logic holds
 }

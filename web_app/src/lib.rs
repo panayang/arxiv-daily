@@ -2438,6 +2438,92 @@ fn Dashboard() -> impl IntoView {
         );
     };
 
+    // Global Hotkeys
+    #[cfg(feature = "hydrate")]
+    {
+
+        use leptos::ev;
+        use leptos::prelude::window_event_listener;
+
+        let total_count_resource =
+            total_count;
+
+        window_event_listener(
+            ev::keydown,
+            move |ev| {
+
+                let key = ev.key();
+
+                // Modal closing with Escape
+                if key == "Escape" {
+
+                    if show_config.get()
+                    {
+
+                        set_show_config
+                            .set(false);
+
+                        return;
+                    }
+
+                    if show_about.get()
+                    {
+
+                        set_show_about
+                            .set(false);
+
+                        return;
+                    }
+
+                    if show_surprise
+                        .get()
+                    {
+
+                        set_show_surprise.set(false);
+
+                        return;
+                    }
+                }
+
+                // Pagination with Arrows (only if no modal is open and not typing in an input)
+                if !show_config.get()
+                    && !show_about.get()
+                    && !show_surprise
+                        .get()
+                {
+
+                    let active_el = web_sys::window()
+                     .and_then(|w| w.document())
+                     .and_then(|d| d.active_element())
+                     .map(|el| el.tag_name().to_uppercase())
+                     .unwrap_or("BODY".to_string());
+
+                    if active_el != "INPUT" && active_el != "TEXTAREA" && active_el != "SELECT" {
+                     if key == "ArrowLeft" {
+                        let current = page.get();
+                        if current > 1 {
+                             set_page.set(current - 1);
+                             set_trigger_search.update(|s| s.page = current - 1);
+                        }
+                     } else if key == "ArrowRight" {
+                         let current = page.get();
+                         let total = total_count_resource.get()
+                             .and_then(|res| res.ok())
+                             .unwrap_or(0);
+                         let p_size = page_size.get();
+                         let max_page = total.div_ceil(p_size).max(1);
+
+                         if current < max_page {
+                             set_page.set(current + 1);
+                             set_trigger_search.update(|s| s.page = current + 1);
+                         }
+                     }
+                 }
+                }
+            },
+        );
+    }
+
     let on_page_change =
         move |p: usize| {
 
@@ -3057,7 +3143,7 @@ fn FilterBar(
         };
 
     view! {
-        <div class="glass flex flex-wrap items-center gap-6 p-6 rounded-[2rem] border border-white/5 shadow-2xl animate-fade-in stagger-2">
+        <div class="glass flex flex-wrap items-center gap-6 p-6 rounded-[2rem] border border-white/5 shadow-2xl animate-fade-in stagger-2 relative z-50">
             <div class="flex flex-col gap-2 min-w-[280px] flex-2 relative">
                 <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/20 ml-2">"Research Category"</label>
 
@@ -3072,7 +3158,7 @@ fn FilterBar(
                     </button>
 
                     <Show when=move || is_open.get()>
-                        <div class="absolute z-[63] mt-3 w-full glass shadow-[0_30px_60px_-15px_rgba(0,0,0,0.5)] rounded-[1.5rem] overflow-hidden animate-scale-in">
+                        <div class="absolute z-[999] mt-3 w-full bg-obsidian-card border border-white/10 shadow-[0_30px_60px_-15px_rgba(0,0,0,0.8)] rounded-[1.5rem] overflow-hidden animate-scale-in">
                             <div class="p-2 border-b border-white/5">
                                 <input
                                     type="text"

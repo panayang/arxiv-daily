@@ -346,143 +346,469 @@ fn main() -> Result<
     Ok(())
 }
 
-fn force_bigint(expr: Expr) -> Expr {
+fn force_bigint(
+    root_expr: Expr
+) -> Expr {
 
-    match expr {
-        | Expr::Constant(f)
-            if f.fract() == 0.0 =>
-        {
+    // Stack-based iterative approach to avoid recursion overflow
+    let root_expr_clone =
+        root_expr.clone();
 
-            // Use i64 for small ones, or if we had num-traits we'd use from_f64
-            // For CAS coefficients, it's usually small.
-            Expr::BigInt(num_bigint::BigInt::from(f as i64))
-        },
-        | Expr::Add(a, b) => {
-            Expr::Add(
-                Arc::new(force_bigint(
-                    a.as_ref().clone(),
-                )),
-                Arc::new(force_bigint(
-                    b.as_ref().clone(),
-                )),
-            )
-        },
-        | Expr::Sub(a, b) => {
-            Expr::Sub(
-                Arc::new(force_bigint(
-                    a.as_ref().clone(),
-                )),
-                Arc::new(force_bigint(
-                    b.as_ref().clone(),
-                )),
-            )
-        },
-        | Expr::Mul(a, b) => {
-            Expr::Mul(
-                Arc::new(force_bigint(
-                    a.as_ref().clone(),
-                )),
-                Arc::new(force_bigint(
-                    b.as_ref().clone(),
-                )),
-            )
-        },
-        | Expr::Div(a, b) => {
-            Expr::Div(
-                Arc::new(force_bigint(
-                    a.as_ref().clone(),
-                )),
-                Arc::new(force_bigint(
-                    b.as_ref().clone(),
-                )),
-            )
-        },
-        | Expr::Power(a, b) => {
-            Expr::Power(
-                Arc::new(force_bigint(
-                    a.as_ref().clone(),
-                )),
-                Arc::new(force_bigint(
-                    b.as_ref().clone(),
-                )),
-            )
-        },
-        | Expr::Neg(a) => {
-            Expr::Neg(Arc::new(
-                force_bigint(
-                    a.as_ref().clone(),
-                ),
-            ))
-        },
-        | Expr::AddList(list) => {
-            Expr::AddList(
-                list.into_iter()
-                    .map(force_bigint)
-                    .collect(),
-            )
-        },
-        | Expr::MulList(list) => {
-            Expr::MulList(
-                list.into_iter()
-                    .map(force_bigint)
-                    .collect(),
-            )
-        },
-        | _ => expr,
+    let mut visit_stack =
+        vec![(root_expr, false)];
+
+    let mut output_stack: Vec<Expr> =
+        Vec::new();
+
+    while let Some((expr, visited)) =
+        visit_stack.pop()
+    {
+
+        if visited {
+
+            // Reconstruct node from children on output_stack
+            match expr {
+                Expr::Add(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Add(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Sub(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Sub(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Mul(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Mul(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Div(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Div(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Power(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Power(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::LogBase(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::Neg(_) => {
+                    let inner = output_stack.pop().unwrap();
+                    output_stack.push(Expr::Neg(Arc::new(inner)));
+                },
+                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
+                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
+                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
+                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
+                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
+                Expr::Abs(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Abs(Arc::new(v))); },
+                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::AddList(list) => {
+                    let mut new_list = Vec::with_capacity(list.len());
+                    for _ in 0..list.len() {
+                        new_list.push(output_stack.pop().unwrap());
+                    }
+                    new_list.reverse();
+                    output_stack.push(Expr::AddList(new_list));
+                },
+                Expr::MulList(list) => {
+                    let mut new_list = Vec::with_capacity(list.len());
+                    for _ in 0..list.len() {
+                        new_list.push(output_stack.pop().unwrap());
+                    }
+                    new_list.reverse();
+                    output_stack.push(Expr::MulList(new_list));
+                },
+                // Leaves are pushed directly in the else block
+                _ => unreachable!("Leaves or unhandled types should be processed before marking visited. Type: {:?}", std::mem::discriminant(&expr)),
+            }
+        } else {
+
+            // Process node
+            match expr {
+                | Expr::Constant(f)
+                    if f.fract()
+                        == 0.0 =>
+                {
+
+                    output_stack.push(Expr::BigInt(num_bigint::BigInt::from(f as i64)));
+                },
+                // Other leaves just pass through
+                | Expr::Constant(_)
+                | Expr::BigInt(_)
+                | Expr::Variable(_)
+                | Expr::Rational(_) => {
+
+                    output_stack
+                        .push(expr);
+                },
+                // Recursive cases: push visited parent, then children (reverse order for stack)
+                | Expr::Add(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Sub(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Mul(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Div(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Power(
+                    ref a,
+                    ref b,
+                )
+                | Expr::LogBase(
+                    ref a,
+                    ref b,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    visit_stack.push((
+                        b.as_ref()
+                            .clone(),
+                        false,
+                    ));
+
+                    visit_stack.push((
+                        a.as_ref()
+                            .clone(),
+                        false,
+                    ));
+                },
+                | Expr::Neg(ref a)
+                | Expr::Sin(ref a)
+                | Expr::Cos(ref a)
+                | Expr::Tan(ref a)
+                | Expr::Exp(ref a)
+                | Expr::Log(ref a)
+                | Expr::Abs(ref a)
+                | Expr::Sqrt(ref a) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    visit_stack.push((
+                        a.as_ref()
+                            .clone(),
+                        false,
+                    ));
+                },
+                | Expr::AddList(
+                    ref list,
+                )
+                | Expr::MulList(
+                    ref list,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    for item in list
+                        .iter()
+                        .rev()
+                    {
+
+                        visit_stack
+                            .push((
+                            item.clone(
+                            ),
+                            false,
+                        ));
+                    }
+                },
+                // Leaves pass through
+                | _ => {
+
+                    output_stack
+                        .push(expr);
+                },
+            }
+        }
     }
+
+    output_stack
+        .pop()
+        .unwrap_or(root_expr_clone)
 }
 
 fn force_bigint_eval(
-    expr: Expr
+    root_expr: Expr
 ) -> Expr {
 
-    match expr {
-        Expr::Constant(f) if f.fract() == 0.0 => Expr::BigInt(num_bigint::BigInt::from(f as i64)),
-        Expr::Add(a, b) => {
-            let left = force_bigint_eval(a.as_ref().clone());
-            let right = force_bigint_eval(b.as_ref().clone());
-            match (left, right) {
-                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va + vb),
-                (la, ra) => Expr::Add(Arc::new(la), Arc::new(ra)),
-            }
-        }
-        Expr::Sub(a, b) => {
-            let left = force_bigint_eval(a.as_ref().clone());
-            let right = force_bigint_eval(b.as_ref().clone());
-            match (left, right) {
-                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va - vb),
-                (la, ra) => Expr::Sub(Arc::new(la), Arc::new(ra)),
-            }
-        }
-        Expr::Mul(a, b) => {
-            let left = force_bigint_eval(a.as_ref().clone());
-            let right = force_bigint_eval(b.as_ref().clone());
-            match (left, right) {
-                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va * vb),
-                (la, ra) => Expr::Mul(Arc::new(la), Arc::new(ra)),
-            }
-        }
-        Expr::Power(a, b) => {
-            let left = force_bigint_eval(a.as_ref().clone());
-            let right = force_bigint_eval(b.as_ref().clone());
-            match (left, right) {
-                (Expr::BigInt(base), Expr::BigInt(exp)) => {
-                    if let Some(e) = exp.to_u32() {
-                        Expr::BigInt(base.pow(e))
-                    } else {
-                        Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp)))
+    use num_traits::Signed;
+    use num_traits::Zero;
+
+    // Stack-based iterative approach
+    let root_expr_clone =
+        root_expr.clone();
+
+    let mut visit_stack =
+        vec![(root_expr, false)];
+
+    let mut output_stack: Vec<Expr> =
+        Vec::new();
+
+    while let Some((expr, visited)) =
+        visit_stack.pop()
+    {
+
+        if visited {
+
+            // Reconstruct node from children on output_stack and FOLD if possible
+            match expr {
+                Expr::Add(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va + vb)),
+                        (la, ra) => output_stack.push(Expr::Add(Arc::new(la), Arc::new(ra))),
                     }
-                }
-                (la, ra) => Expr::Power(Arc::new(la), Arc::new(ra)),
+                },
+                Expr::Sub(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va - vb)),
+                        (la, ra) => output_stack.push(Expr::Sub(Arc::new(la), Arc::new(ra))),
+                    }
+                },
+                Expr::Mul(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va * vb)),
+                        (la, ra) => output_stack.push(Expr::Mul(Arc::new(la), Arc::new(ra))),
+                    }
+                },
+                Expr::Div(_, _) => {
+                     let rhs = output_stack.pop().unwrap();
+                     let lhs = output_stack.pop().unwrap();
+                     match (lhs, rhs) {
+                         (Expr::BigInt(va), Expr::BigInt(vb)) if !vb.is_zero() && &va % &vb == BigInt::from(0) =>
+                             output_stack.push(Expr::BigInt(va / vb)),
+                         (la, ra) => output_stack.push(Expr::Div(Arc::new(la), Arc::new(ra))),
+                     }
+                },
+                Expr::Power(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    match (lhs, rhs) {
+                        (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                            if let Some(e) = exp.to_u32() {
+                                output_stack.push(Expr::BigInt(base.pow(e)));
+                            } else if exp == BigInt::from(0) {
+                                output_stack.push(Expr::BigInt(BigInt::from(1)));
+                            } else {
+                                output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
+                            }
+                        }
+                        (la, ra) => output_stack.push(Expr::Power(Arc::new(la), Arc::new(ra))),
+                    }
+                },
+                Expr::Neg(_) => {
+                    let inner = output_stack.pop().unwrap();
+                    match inner {
+                        Expr::BigInt(v) => output_stack.push(Expr::BigInt(-v)),
+                        other => output_stack.push(Expr::Neg(Arc::new(other))),
+                    }
+                },
+                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
+                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
+                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
+                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
+                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
+                Expr::Abs(_) => {
+                     let inner = output_stack.pop().unwrap();
+                     match inner {
+                         Expr::BigInt(v) => output_stack.push(Expr::BigInt(v.abs())),
+                         other => output_stack.push(Expr::Abs(Arc::new(other))),
+                     }
+                },
+                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::LogBase(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
+                    let lhs = output_stack.pop().unwrap();
+                    output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
+                },
+                Expr::AddList(list) => {
+                    let len = list.len();
+                    let mut children = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        children.push(output_stack.pop().unwrap());
+                    }
+                    children.reverse();
+
+                    let all_bigint = children.iter().all(|c| matches!(c, Expr::BigInt(_)));
+                    if all_bigint {
+                        let mut sum = BigInt::from(0);
+                        for c in children {
+                            if let Expr::BigInt(n) = c { sum += n; }
+                        }
+                        output_stack.push(Expr::BigInt(sum));
+                    } else {
+                        output_stack.push(Expr::AddList(children));
+                    }
+                },
+                Expr::MulList(list) => {
+                    let len = list.len();
+                    let mut children = Vec::with_capacity(len);
+                    for _ in 0..len {
+                        children.push(output_stack.pop().unwrap());
+                    }
+                    children.reverse();
+
+                    let all_bigint = children.iter().all(|c| matches!(c, Expr::BigInt(_)));
+                    if all_bigint {
+                        let mut prod = BigInt::from(1);
+                        for c in children {
+                            if let Expr::BigInt(n) = c { prod *= n; }
+                        }
+                        output_stack.push(Expr::BigInt(prod));
+                    } else {
+                        output_stack.push(Expr::MulList(children));
+                    }
+                },
+                _ => unreachable!("Leaves or unhandled types should be processed before marking visited. Type: {:?}", std::mem::discriminant(&expr)),
+            }
+        } else {
+
+            // Process node
+            match expr {
+                | Expr::Constant(f)
+                    if f.fract()
+                        == 0.0 =>
+                {
+
+                    output_stack.push(Expr::BigInt(num_bigint::BigInt::from(f as i64)));
+                },
+                // Other leaves just pass through
+                | Expr::Constant(_)
+                | Expr::BigInt(_)
+                | Expr::Variable(_)
+                | Expr::Rational(_) => {
+
+                    output_stack
+                        .push(expr);
+                },
+                // Recursive cases: push visited parent, children (reverse order for stack)
+                | Expr::Add(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Sub(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Mul(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Div(
+                    ref a,
+                    ref b,
+                )
+                | Expr::Power(
+                    ref a,
+                    ref b,
+                )
+                | Expr::LogBase(
+                    ref a,
+                    ref b,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    visit_stack.push((
+                        b.as_ref()
+                            .clone(),
+                        false,
+                    ));
+
+                    visit_stack.push((
+                        a.as_ref()
+                            .clone(),
+                        false,
+                    ));
+                },
+                | Expr::Neg(ref a)
+                | Expr::Sin(ref a)
+                | Expr::Cos(ref a)
+                | Expr::Tan(ref a)
+                | Expr::Exp(ref a)
+                | Expr::Log(ref a)
+                | Expr::Abs(ref a)
+                | Expr::Sqrt(ref a) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    visit_stack.push((
+                        a.as_ref()
+                            .clone(),
+                        false,
+                    ));
+                },
+                | Expr::AddList(
+                    ref list,
+                )
+                | Expr::MulList(
+                    ref list,
+                ) => {
+
+                    visit_stack.push((
+                        expr.clone(),
+                        true,
+                    ));
+
+                    for item in list
+                        .iter()
+                        .rev()
+                    {
+
+                        visit_stack
+                            .push((
+                            item.clone(
+                            ),
+                            false,
+                        ));
+                    }
+                },
+                // Leaves pass through
+                | _ => {
+
+                    output_stack
+                        .push(expr);
+                },
             }
         }
-        Expr::Neg(a) => {
-            let inner = force_bigint_eval(a.as_ref().clone());
-            match inner {
-                Expr::BigInt(v) => Expr::BigInt(-v),
-                other => Expr::Neg(Arc::new(other)),
-            }
-        }
-        _ => expr,
     }
+
+    output_stack
+        .pop()
+        .unwrap_or(root_expr_clone)
 }
