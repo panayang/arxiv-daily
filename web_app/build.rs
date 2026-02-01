@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use num_bigint::BigInt;
 use num_bigint::Sign;
+use num_traits::ToPrimitive;
 use rssn::symbolic::calculus::differentiate;
 use rssn::symbolic::calculus::substitute;
 use rssn::symbolic::core::Expr;
@@ -252,6 +253,7 @@ fn main() -> Result<
         deriv = simplify(&deriv)
             .to_ast()
             .map_err(|e| {
+
                 format!(
                     "to_ast failed: {}",
                     e
@@ -260,36 +262,54 @@ fn main() -> Result<
 
         deriv = force_bigint(deriv);
 
-        // Convert payload to BigInt
-        let payload_num =
-            BigInt::from_bytes_be(
-                Sign::Plus,
-                surprise
-                    .payload
-                    .as_bytes(),
+        // Convert payload to BigInt in chunks (1 byte per chunk for maximum safety)
+        let payload_bytes = surprise
+            .payload
+            .as_bytes();
+
+        let chunk_size = 1;
+
+        let mut results = Vec::new();
+
+        for chunk in payload_bytes
+            .chunks(chunk_size)
+        {
+
+            // Prepend a 1 byte to distinguish from trailing zeros and keep x > 255
+            let mut chunk_with_sentinel =
+                vec![1u8];
+
+            chunk_with_sentinel
+                .extend_from_slice(
+                    chunk,
+                );
+
+            let p = BigInt::from_bytes_be(Sign::Plus, &chunk_with_sentinel);
+
+            // Evaluate at P
+            let eval_expr = substitute(
+                &deriv,
+                "x",
+                &Expr::BigInt(p),
             );
 
-        // Evaluate at P
-        // result = f(P)
-        let eval_expr = substitute(
-            &deriv,
-            "x",
-            &Expr::BigInt(payload_num),
-        );
+            let r =
+                simplify(&eval_expr)
+                    .to_ast()
+                    .map_err(|e| {
 
-        let result_expr = simplify(
-            &eval_expr,
-        )
-        .to_ast()
-        .map_err(|e| {
-            format!(
-                "to_ast failed: {}",
-                e
-            )
-        })?;
+                        format!(
+                    "to_ast failed: {}",
+                    e
+                )
+                    })?;
 
-        let result_expr =
-            force_bigint(result_expr);
+            // Aggressively force evaluation of numeric parts
+            let evaled =
+                force_bigint_eval(r);
+
+            results.push(evaled);
+        }
 
         // Serialize
         let assets_dir =
@@ -307,7 +327,7 @@ fn main() -> Result<
             Path::new(assets_dir)
                 .join("surprise.bin");
 
-        let encoded: Vec<u8> = bincode_next::serde::encode_to_vec(&result_expr, bincode_next::config::standard())
+        let encoded: Vec<u8> = bincode_next::serde::encode_to_vec(&results, bincode_next::config::standard())
             .map_err(|e| format!("Failed to encode: {}", e))?;
 
         std::fs::write(
@@ -409,5 +429,60 @@ fn force_bigint(expr: Expr) -> Expr {
             )
         },
         | _ => expr,
+    }
+}
+
+fn force_bigint_eval(
+    expr: Expr
+) -> Expr {
+
+    match expr {
+        Expr::Constant(f) if f.fract() == 0.0 => Expr::BigInt(num_bigint::BigInt::from(f as i64)),
+        Expr::Add(a, b) => {
+            let left = force_bigint_eval(a.as_ref().clone());
+            let right = force_bigint_eval(b.as_ref().clone());
+            match (left, right) {
+                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va + vb),
+                (la, ra) => Expr::Add(Arc::new(la), Arc::new(ra)),
+            }
+        }
+        Expr::Sub(a, b) => {
+            let left = force_bigint_eval(a.as_ref().clone());
+            let right = force_bigint_eval(b.as_ref().clone());
+            match (left, right) {
+                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va - vb),
+                (la, ra) => Expr::Sub(Arc::new(la), Arc::new(ra)),
+            }
+        }
+        Expr::Mul(a, b) => {
+            let left = force_bigint_eval(a.as_ref().clone());
+            let right = force_bigint_eval(b.as_ref().clone());
+            match (left, right) {
+                (Expr::BigInt(va), Expr::BigInt(vb)) => Expr::BigInt(va * vb),
+                (la, ra) => Expr::Mul(Arc::new(la), Arc::new(ra)),
+            }
+        }
+        Expr::Power(a, b) => {
+            let left = force_bigint_eval(a.as_ref().clone());
+            let right = force_bigint_eval(b.as_ref().clone());
+            match (left, right) {
+                (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                    if let Some(e) = exp.to_u32() {
+                        Expr::BigInt(base.pow(e))
+                    } else {
+                        Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp)))
+                    }
+                }
+                (la, ra) => Expr::Power(Arc::new(la), Arc::new(ra)),
+            }
+        }
+        Expr::Neg(a) => {
+            let inner = force_bigint_eval(a.as_ref().clone());
+            match inner {
+                Expr::BigInt(v) => Expr::BigInt(-v),
+                other => Expr::Neg(Arc::new(other)),
+            }
+        }
+        _ => expr,
     }
 }

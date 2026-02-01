@@ -1,3 +1,5 @@
+#![allow(unused_imports)]
+
 use leptos::prelude::*;
 use num_bigint::BigInt;
 #[cfg(feature = "ssr")]
@@ -58,6 +60,7 @@ pub async fn decrypt_surprise_logic(
     let bytes =
         std::fs::read(path.clone())
             .map_err(|e| {
+
                 format!(
                     "Failed to read \
                      surprise data: {}",
@@ -71,25 +74,14 @@ pub async fn decrypt_surprise_logic(
         path
     );
 
-    let decoded: (Expr, usize) = bincode_next::serde::decode_from_slice(&bytes, bincode_next::config::standard())
+    let decoded: (Vec<Expr>, usize) = bincode_next::serde::decode_from_slice(&bytes, bincode_next::config::standard())
         .map_err(|e| format!("Failed to deserialize: {}", e))?;
 
-    let encrypted_expr = decoded.0;
+    let encrypted_exprs = decoded.0;
 
     log::info!(
-        "Encrypted expr variant: {:?}",
-        match &encrypted_expr {
-            | Expr::BigInt(_) =>
-                "BigInt",
-            | Expr::Constant(_) =>
-                "Constant",
-            | _ => "Other",
-        }
-    );
-
-    log::info!(
-        "Encrypted expr value: {}",
-        encrypted_expr
+        "Read {} encrypted chunks",
+        encrypted_exprs.len()
     );
 
     let mut deriv = key_expr;
@@ -103,6 +95,7 @@ pub async fn decrypt_surprise_logic(
     deriv = simplify(&deriv)
         .to_ast()
         .unwrap_or_else(|_| {
+
             simplify(&deriv)
         });
 
@@ -113,114 +106,108 @@ pub async fn decrypt_surprise_logic(
         deriv
     );
 
-    let mut real_roots = Vec::new();
+    let mut full_message_bytes =
+        Vec::new();
 
-    // Strategy 1: BigInt-aware linear solve (exact for large integers)
-    if let Some(root) =
-        try_solve_linear_bigint(
-            &deriv,
-            &encrypted_expr,
-        )
+    for (i, encrypted_expr) in
+        encrypted_exprs
+            .into_iter()
+            .enumerate()
     {
 
-        log::info!(
-            "Solved via BigInt-aware \
-             linear strategy"
-        );
+        let mut real_roots = Vec::new();
 
-        real_roots.push(root);
-    } else {
+        // Strategy 1: BigInt-aware solver (exact for large integers, handles up to quadratic)
+        if let Some(root) =
+            try_solve_bigint(
+                &deriv,
+                &encrypted_expr,
+            )
+        {
 
-        // Strategy 2: Standard solve (fallback)
-        let eq = Expr::new_sub(
-            deriv.clone(),
-            encrypted_expr.clone(),
-        );
+            real_roots.push(root);
+        } else {
 
-        let solutions = solve(&eq, "x");
+            // Strategy 2: Standard solve (fallback)
+            let eq = Expr::new_sub(
+                deriv.clone(),
+                encrypted_expr.clone(),
+            );
 
-        log::info!(
-            "Found {} solutions via \
-             standard solve",
-            solutions.len()
-        );
+            let solutions =
+                solve(&eq, "x");
 
-        for sol in solutions {
+            for sol in solutions {
 
-            let s = simplify(&sol)
-                .to_ast()
-                .unwrap_or_else(|_| {
-                    simplify(&sol)
-                });
+                let s = simplify(&sol)
+                    .to_ast()
+                    .unwrap_or_else(
+                        |_| {
 
-            log::info!("Solution variant: {:?}", match &s {
-                Expr::BigInt(_) => "BigInt",
-                Expr::Constant(_) => "Constant",
-                Expr::Rational(_) => "Rational",
-                _ => "Other",
-            });
+                            simplify(
+                                &sol,
+                            )
+                        },
+                    );
 
-            match s {
-                | Expr::BigInt(n) => {
-                    real_roots
-                        .push(n.clone())
-                },
-                | Expr::Rational(r) => {
-                    if r.is_integer() {
-
-                        real_roots.push(r.to_integer());
-                    }
-                },
-                | Expr::Constant(f) => {
-                    if (f - f.round())
-                        .abs()
-                        < 1e-6
-                    {
-
-                        if f.abs()
-                            < (i64::MAX
-                                as f64)
-                        {
-
-                            real_roots.push(BigInt::from(f.round() as i64));
+                match s {
+                    | Expr::BigInt(n) => real_roots.push(n.clone()),
+                    | Expr::Rational(r) => {
+                        if r.is_integer() {
+                            real_roots.push(r.to_integer());
                         }
-                    }
-                },
-                | _ => {},
+                    },
+                    | Expr::Constant(f) => {
+                        if (f - f.round()).abs() < 1e-6 {
+                            if f.abs() < (i64::MAX as f64) {
+                                real_roots.push(BigInt::from(f.round() as i64));
+                            }
+                        }
+                    },
+                    | _ => {},
+                }
             }
+        }
+
+        if let Some(target_num) =
+            real_roots.first()
+        {
+
+            let mut bytes = target_num
+                .to_bytes_be()
+                .1;
+
+            if !bytes.is_empty() {
+
+                bytes.remove(0); // Remove sentinel byte
+                full_message_bytes
+                    .extend(bytes);
+            }
+        } else {
+
+            log::warn!(
+                "Chunk {} could not \
+                 be solved",
+                i
+            );
         }
     }
 
-    if real_roots.is_empty() {
+    if full_message_bytes.is_empty() {
 
         return Err("No numerical \
-                    solutions found. \
+                    solutions found \
+                    for any chunk. \
                     Is the key \
                     correct?"
             .to_string());
     }
 
-    let target_num = &real_roots[0];
-
-    log::info!(
-        "Target num bytes (len={}): \
-         {:?}",
-        target_num
-            .to_bytes_be()
-            .1
-            .len(),
-        target_num
-            .to_bytes_be()
-            .1
-    );
-
-    let bytes = target_num
-        .to_bytes_be()
-        .1;
-
     let message =
-        String::from_utf8_lossy(&bytes)
-            .to_string();
+        String::from_utf8_lossy(
+            &full_message_bytes,
+        )
+        .to_string();
 
     Ok(message)
 }
@@ -242,6 +229,7 @@ pub async fn decrypt_surprise_server(
             )
             .await
             .map_err(|e| {
+
                 ServerFnError::new(e)
             })?;
 
@@ -304,10 +292,7 @@ pub async fn decrypt_surprise_server(
             }
         } else {
 
-            Ok(format!(
-                "(AI not loaded) {}",
-                raw_message
-            ))
+            Ok(raw_message)
         }
     }
 
@@ -421,7 +406,7 @@ pub fn SurpriseModal(
 
 #[cfg(feature = "ssr")]
 
-fn try_solve_linear_bigint(
+fn try_solve_bigint(
     deriv: &Expr,
     target: &Expr,
 ) -> Option<BigInt> {
@@ -431,120 +416,79 @@ fn try_solve_linear_bigint(
     use rssn::symbolic::simplify_dag::simplify;
 
     log::info!(
-        "try_solve_linear_bigint start"
+        "try_solve_bigint \
+         (brute-force strategy) start"
     );
 
-    let f0 = simplify(&substitute(
-        deriv,
-        "x",
-        &Expr::BigInt(0.into()),
-    ));
-
-    let f1 = simplify(&substitute(
-        deriv,
-        "x",
-        &Expr::BigInt(1.into()),
-    ));
-
-    let f0_ast = f0
-        .to_ast()
-        .unwrap_or(f0);
-
-    let f1_ast = f1
-        .to_ast()
-        .unwrap_or(f1);
-
-    log::info!(
-        "f(0) AST: {:?}, f(1) AST: \
-         {:?}",
-        f0_ast,
-        f1_ast
-    );
-
-    match (
-        force_bigint(f0_ast),
-        force_bigint(f1_ast),
-        force_bigint(target.clone()),
+    let target_val = match force_bigint(
+        target.clone(),
     ) {
-        | (
-            Expr::BigInt(b),
-            Expr::BigInt(a_plus_b),
-            Expr::BigInt(target_val),
-        ) => {
+        | Expr::BigInt(n) => n,
+        | _ => return None,
+    };
 
-            let a = a_plus_b - &b;
+    // Since we now use 1-byte chunks with a 0x01 sentinel,
+    // x will always be in the range [256, 511].
+    // This brute-force approach is foolproof for any complex key.
+    for val in 0 ..= 255 {
 
-            log::info!(
-                "Linear extraction: \
-                 a={}, b={}, target={}",
-                a,
-                b,
-                target_val
-            );
+        let x_guess =
+            BigInt::from(256 + val);
 
-            if a == BigInt::from(0) {
+        let eval =
+            simplify(&substitute(
+                deriv,
+                "x",
+                &Expr::BigInt(
+                    x_guess.clone(),
+                ),
+            ));
 
-                log::warn!(
-                    "Slope 'a' is \
-                     zero, cannot \
-                     solve linear \
-                     equation"
-                );
+        if let Expr::BigInt(res) =
+            force_bigint(eval)
+        {
 
-                return None;
+            if res == target_val {
+
+                return Some(x_guess);
             }
-
-            let numerator =
-                target_val - b;
-
-            if &numerator % &a
-                == BigInt::from(0)
-            {
-
-                Some(numerator / a)
-            } else {
-
-                log::warn!(
-                    "Numerator {} not \
-                     divisible by {}",
-                    numerator,
-                    a
-                );
-
-                None
-            }
-        },
-        | (v0, v1, vt) => {
-
-            log::warn!(
-                "force_bigint failed \
-                 to yield BigInts: \
-                 f0={:?}, f1={:?}, \
-                 target={:?}",
-                match v0 {
-                    | Expr::BigInt(
-                        _,
-                    ) => "BigInt",
-                    | _ => "Other",
-                },
-                match v1 {
-                    | Expr::BigInt(
-                        _,
-                    ) => "BigInt",
-                    | _ => "Other",
-                },
-                match vt {
-                    | Expr::BigInt(
-                        _,
-                    ) => "BigInt",
-                    | _ => "Other",
-                }
-            );
-
-            None
-        },
+        }
     }
+
+    // Fallback search for larger ranges if needed (e.g. 2-byte chunks)
+    for val in 0 ..= 65535 {
+
+        let x_guess =
+            BigInt::from(65536 + val);
+
+        let eval =
+            simplify(&substitute(
+                deriv,
+                "x",
+                &Expr::BigInt(
+                    x_guess.clone(),
+                ),
+            ));
+
+        if let Expr::BigInt(res) =
+            force_bigint(eval)
+        {
+
+            if res == target_val {
+
+                return Some(x_guess);
+            }
+        }
+    }
+
+    log::warn!(
+        "Brute-force failed to find \
+         solution in [256, 131071]"
+    );
+
+    None
 }
+
 
 #[cfg(feature = "ssr")]
 
@@ -552,6 +496,7 @@ fn force_bigint(expr: Expr) -> Expr {
 
     use std::sync::Arc;
 
+    use num_traits::ToPrimitive;
     use rssn::symbolic::core::Expr;
 
     let expr = expr
@@ -561,12 +506,61 @@ fn force_bigint(expr: Expr) -> Expr {
     match expr {
         Expr::Constant(f) if f.fract() == 0.0 => Expr::BigInt(num_bigint::BigInt::from(f as i64)),
         Expr::Rational(r) if r.is_integer() => Expr::BigInt(r.to_integer()),
-        Expr::Add(a, b) => Expr::Add(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
-        Expr::Sub(a, b) => Expr::Sub(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
-        Expr::Mul(a, b) => Expr::Mul(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
-        Expr::Div(a, b) => Expr::Div(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
-        Expr::Power(a, b) => Expr::Power(Arc::new(force_bigint(a.as_ref().clone())), Arc::new(force_bigint(b.as_ref().clone()))),
-        Expr::Neg(a) => Expr::Neg(Arc::new(force_bigint(a.as_ref().clone()))),
+        Expr::Add(a, b) => {
+            let lhs = force_bigint(a.as_ref().clone());
+            let rhs = force_bigint(b.as_ref().clone());
+            match (lhs, rhs) {
+                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la + lb),
+                (l, r) => Expr::Add(Arc::new(l), Arc::new(r)),
+            }
+        },
+        Expr::Sub(a, b) => {
+            let lhs = force_bigint(a.as_ref().clone());
+            let rhs = force_bigint(b.as_ref().clone());
+            match (lhs, rhs) {
+                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la - lb),
+                (l, r) => Expr::Sub(Arc::new(l), Arc::new(r)),
+            }
+        },
+        Expr::Mul(a, b) => {
+            let lhs = force_bigint(a.as_ref().clone());
+            let rhs = force_bigint(b.as_ref().clone());
+            match (lhs, rhs) {
+                (Expr::BigInt(la), Expr::BigInt(lb)) => Expr::BigInt(la * lb),
+                (l, r) => Expr::Mul(Arc::new(l), Arc::new(r)),
+            }
+        },
+        Expr::Div(a, b) => {
+            let lhs = force_bigint(a.as_ref().clone());
+            let rhs = force_bigint(b.as_ref().clone());
+            match (lhs, rhs) {
+                (Expr::BigInt(la), Expr::BigInt(lb)) if &la % &lb == BigInt::from(0) => Expr::BigInt(la / lb),
+                (l, r) => Expr::Div(Arc::new(l), Arc::new(r)),
+            }
+        },
+        Expr::Power(a, b) => {
+            let lhs = force_bigint(a.as_ref().clone());
+            let rhs = force_bigint(b.as_ref().clone());
+            match (lhs, rhs) {
+                (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                    if let Some(e) = exp.to_u32() {
+                        Expr::BigInt(base.pow(e))
+                    } else if exp == BigInt::from(0) {
+                        Expr::BigInt(BigInt::from(1))
+                    } else {
+                        Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp)))
+                    }
+                }
+                (l, r) => Expr::Power(Arc::new(l), Arc::new(r)),
+            }
+        },
+        Expr::Neg(a) => {
+            let inner = force_bigint(a.as_ref().clone());
+            match inner {
+                Expr::BigInt(n) => Expr::BigInt(-n),
+                other => Expr::Neg(Arc::new(other)),
+            }
+        },
         Expr::AddList(list) => Expr::AddList(list.into_iter().map(force_bigint).collect()),
         Expr::MulList(list) => Expr::MulList(list.into_iter().map(force_bigint).collect()),
         _ => expr,

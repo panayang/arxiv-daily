@@ -11763,6 +11763,7 @@ dependencies = [
  "mime_guess",
  "mistralrs",
  "num-bigint",
+ "num-traits",
  "open",
  "pulp 0.22.2",
  "rayon",
