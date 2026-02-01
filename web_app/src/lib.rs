@@ -400,6 +400,8 @@ pub async fn get_paper_count(
     Ok(count as usize)
 }
 
+#[allow(clippy::inline_always)]
+#[inline(always)]
 #[server(GetConfig, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn get_config()
@@ -427,7 +429,8 @@ pub async fn get_config()
     Ok(content)
 }
 
-
+#[allow(clippy::inline_always)]
+#[inline(always)]
 #[server(SaveConfig, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn save_config(
@@ -500,6 +503,8 @@ pub static REPOSITORY: LazyLock<
     "https://github.com/panayang/arxiv-daily".to_string()
 });
 
+#[allow(clippy::inline_always)]
+#[inline(always)]
 #[server(GetVersionInfo, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn get_version_info()
@@ -1881,6 +1886,8 @@ pub fn render_math(
     final_result
 }
 
+#[allow(clippy::inline_always)]
+#[inline(always)]
 #[cfg(feature = "ssr")]
 #[allow(dead_code)]
 

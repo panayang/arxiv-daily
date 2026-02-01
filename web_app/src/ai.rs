@@ -83,6 +83,9 @@ pub struct QLinear {
 #[cfg(feature = "ssr")]
 
 impl QLinear {
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+
     fn new(
         tensor: candle_core::quantized::QTensor
     ) -> Result<Self> {
@@ -94,6 +97,9 @@ impl QLinear {
                 )?,
         })
     }
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
 
     fn forward(
         &self,
@@ -340,6 +346,9 @@ impl RmsNorm {
 #[cfg(feature = "ssr")]
 
 impl Module for RmsNorm {
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+
     fn forward(
         &self,
         x: &Tensor,
@@ -578,16 +587,20 @@ impl Attention {
 
         let (q, (k, v)) = rayon::join(
             || {
+
                 self.q_proj
                     .forward(xs)
             },
             || {
+
                 rayon::join(
                     || {
+
                         self.k_proj
                             .forward(xs)
                     },
                     || {
+
                         self.v_proj
                             .forward(xs)
                     },
@@ -829,7 +842,13 @@ impl Model {
         device: &Device,
     ) -> anyhow::Result<Self> {
 
-        // println!("🔍 Loading GGUF from {:?}", path.as_ref());
+        use log;
+
+        log::info!(
+            "🔍 Loading GGUF from {:?}",
+            path.as_ref()
+        );
+
         let file =
             std::fs::File::open(path)?;
 
@@ -846,7 +865,7 @@ impl Model {
                 &mut reader,
             )?;
 
-        // println!("📝 GGUF Keys:");
+        // log::info!("📝 GGUF Keys:");
         for key in content
             .tensor_infos
             .keys()
@@ -855,13 +874,13 @@ impl Model {
             if key.contains("blk.0")
                 || !key.contains("blk.")
             {
-                // println!("  {}", key);
+                // log::info!("  {}", key);
             }
         }
 
         let cfg = Config::gemma3_270m();
 
-        // println!("🧠 Initializing Model with Config: {:?}", cfg);
+        // log::info!("🧠 Initializing Model with Config: {:?}", cfg);
 
         let mut layers =
             Vec::with_capacity(
@@ -999,7 +1018,7 @@ impl Model {
                 ffn_norm,
                 post_ffn_norm,
             });
-            // println!("  Layer {} loaded", i);
+            // log::info!("  Layer {} loaded", i);
         }
 
         let norm_w = content
@@ -1033,7 +1052,7 @@ impl Model {
             )
         {
 
-            // println!("💡 Weight tying detected: using token_embd.weight for output.weight");
+            // log::info!("💡 Weight tying detected: using token_embd.weight for output.weight");
             content.tensor(
                 &mut reader,
                 "token_embd.weight",
@@ -1053,7 +1072,7 @@ impl Model {
             lm_head_weight,
         )?;
 
-        // println!("✨ Model loading complete.");
+        // log::info!("✨ Model loading complete.");
 
         Ok(Self {
             embed_tokens,
@@ -1210,10 +1229,16 @@ impl Model {
 
 // Added missing helpers to Config logic if needed, but I'll stick to fields.
 impl Config {
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+
     fn num_heads(&self) -> usize {
 
         self.num_attention_heads
     }
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
 
     fn num_kv_heads(&self) -> usize {
 
@@ -1269,12 +1294,18 @@ impl Gemma3 {
         })
     }
 
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+
     pub fn is_initialized(
         &self
     ) -> bool {
 
         self.initialized
     }
+
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
 
     pub fn set_initialized(
         &mut self,
@@ -1321,7 +1352,7 @@ impl Gemma3 {
                 max_tokens * 4,
             );
 
-        // println!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
+        // log::info!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
 
         for i in 0 .. max_tokens {
 
@@ -1530,10 +1561,10 @@ impl Drop for Gemma3 {
     fn drop(&mut self) {
 
         // Simple log to verify destruction on server stdout
-        // We use println! or log! if available. Since it's library code, println might be safer or log.
+        // We use log::info! or log! if available. Since it's library code, log::info might be safer or log.
         // But let's assume `log` crate is available as it's used in lib.rs
-        // Actually ai.rs does not import log. We can add `use log;` or just println.
-        // println!(
+        // Actually ai.rs does not import log. We can add `use log;` or just log::info.
+        // log::info!(
         //     "♻️ Gemma3 Model is being \
         //      dropped/deallocated."
         // );
