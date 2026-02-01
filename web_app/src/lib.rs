@@ -32,6 +32,16 @@ use tokio::sync::Mutex;
 #[cfg(feature = "ssr")]
 use tokio::sync::OnceCell;
 
+#[derive(
+    Clone, Debug, serde::Serialize, serde::Deserialize, bincode_next::Encode, bincode_next::Decode,
+)]
+
+pub enum FilterStreamMessage {
+    Result(String, bool), /* (paper_id, keep) */
+    Stopped, /* Stream stopped (e.g. model unloaded) */
+    Error(String), // Recoverable error
+}
+
 #[server(GetPapers, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn get_papers(
@@ -1238,13 +1248,13 @@ pub async fn stream_ai_filter(
                 async move {
                     // 1. Check generation
                     if MODEL_GENERATION.load(Ordering::Relaxed) != params_gen {
-                         return Err(ServerFnError::new("Model invalidated/unloaded"));
+                         return Ok(FilterStreamMessage::Stopped);
                     }
 
                     // 2. Try to upgrade Weak
                     let model_arc = match model_weak.upgrade() {
                         Some(arc) => arc,
-                        None => return Err(ServerFnError::new("Model dropped")),
+                        None => return Ok(FilterStreamMessage::Stopped),
                     };
 
                     // 3. Yield to prevent CPU starvation on single-threaded runtimes or heavy load
@@ -1277,28 +1287,31 @@ pub async fn stream_ai_filter(
                         Ok(Ok(r)) => r,
                         Ok(Err(e)) => {
                              log::error!("AI completion internal error: {}", e);
-                             return Ok((paper.id, true));
+                             return Ok(FilterStreamMessage::Result(paper.id, true));
                         }
                         Err(e) => {
                             log::error!("AI task join error: {}", e);
-                             return Ok((paper.id, true));
+                             return Ok(FilterStreamMessage::Result(paper.id, true));
                         }
                     };
 
                     let response = response.trim().to_uppercase();
                     let is_excluded = response.contains("YES");
 
-                    Ok((paper.id, !is_excluded))
+                    Ok(FilterStreamMessage::Result(paper.id, !is_excluded))
                 }
             })
-            // Filter out errors (like "Model unloaded") to stop the stream gracefully
-            .take_while(|r| futures::future::ready(r.is_ok()))
-            .map(|result| result.unwrap()) // We know it's Ok here due to take_while.
-            .map(|val: (String, bool)| {
-                 let config = config::standard();
-                 let bytes: Vec<u8> = bincode_next::encode_to_vec(&val, config)
-                    .map_err(|e| ServerFnError::new(e.to_string()))?;
-                 Ok(Bytes::from(bytes))
+            // Remove take_while so we can send Stopped message
+            .map(|result| {
+                 match result {
+                     Ok(msg) => {
+                         let config = config::standard();
+                         let bytes: Vec<u8> = bincode_next::encode_to_vec(&msg, config)
+                            .map_err(|e| ServerFnError::new(e.to_string()))?;
+                         Ok(Bytes::from(bytes))
+                     }
+                     Err(e) => Err(e),
+                 }
             });
 
         Ok(ByteStream::new(
@@ -2078,11 +2091,22 @@ fn Dashboard() -> impl IntoView {
                                     Ok(chunk) => {
                                         // chunk should be Bytes
                                         let config = config::standard();
-                                        if let Ok(((id, keep), _size)) = bincode_next::decode_from_slice::<(String, bool), _>(&chunk, config) {
-                                            if !keep {
-                                                set_hidden_paper_ids.update(|set| {
-                                                    set.insert(id);
-                                                });
+                                        if let Ok((msg, _size)) = bincode_next::decode_from_slice::<FilterStreamMessage, _>(&chunk, config) {
+                                            match msg {
+                                                FilterStreamMessage::Result(id, keep) => {
+                                                    if !keep {
+                                                        set_hidden_paper_ids.update(|set| {
+                                                            set.insert(id);
+                                                        });
+                                                    }
+                                                },
+                                                FilterStreamMessage::Stopped => {
+                                                    log::info!("AI Stream stopped explicitly.");
+                                                    // Optional: Toast or UI indicator
+                                                },
+                                                FilterStreamMessage::Error(e) => {
+                                                    log::error!("AI Stream error: {}", e);
+                                                }
                                             }
                                         }
                                     }
