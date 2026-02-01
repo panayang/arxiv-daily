@@ -1339,12 +1339,28 @@ pub async fn stream_ai_filter(
                         let mut gemma = ai::Gemma3::new(model_path, tokenizer_path)
                             .map_err(|e| format!("Failed to load Gemma 3 model: {}", e))?;
                         gemma.set_initialized(true);
-                        // Do a quick self-test?
-                        // gemma.self_test().map_err(|e| format!("{}", e))?;
+                        // Do a quick self-test (Only when debugging)
+                        if cfg!(debug_assertions) {
+                            gemma.self_test().map_err(|e| format!("{}", e))?;
+                        }
                         Ok::<ai::Gemma3, String>(gemma)
                     }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
 
-                    let gemma = gemma_res.map_err(|e| ServerFnError::new(e))?;
+                    let gemma =
+                        match gemma_res
+                        {
+                            | Ok(g) => {
+                                g
+                            },
+                            | Err(
+                                e,
+                            ) => {
+
+                                log::error!("❌ Model loading or self-test failed: {}", e);
+
+                                return Err(ServerFnError::new(e));
+                            },
+                        };
 
                     let m = Arc::new(std::sync::Mutex::new(gemma));
 

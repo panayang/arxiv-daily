@@ -185,7 +185,8 @@ impl RmsNorm {
                     let full_slice = cpu.as_slice::<f32>()?;
                     let x_slice = &full_slice[layout.start_offset()..layout.start_offset() + layout.shape().elem_count()];
 
-                    let mut result_vec = vec![0.0f32; x_slice.len()];
+                    let mut result_vec = Vec::<f32>::with_capacity(x_slice.len());
+                    unsafe { result_vec.set_len(x_slice.len()); }
                     let arch = Arch::new();
 
                     let hidden_size = *dims.last().unwrap();
@@ -193,11 +194,7 @@ impl RmsNorm {
                     let num_rows = num_elements / hidden_size;
 
                     arch.dispatch(|| {
-                        let row_op = |r: usize| {
-                            let start = r * hidden_size;
-                            let end = start + hidden_size;
-                            let row = &x_slice[start..end];
-
+                        let process_row = |(row, res_row): (&[f32], &mut [f32])| {
                             let mut sum_sq = 0.0f32;
                             for chunk in row.chunks_exact(8) {
                                 sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
@@ -208,20 +205,19 @@ impl RmsNorm {
                             }
 
                             let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
-                            let res_row_ptr = result_vec.as_ptr() as *mut f32;
-
-                            unsafe {
-                                let res_row = std::slice::from_raw_parts_mut(res_row_ptr.add(start), hidden_size);
-                                for i in 0..hidden_size {
-                                    res_row[i] = row[i] * inv_norm * weight_vec[i];
-                                }
+                            for i in 0..hidden_size {
+                                res_row[i] = row[i] * inv_norm * weight_vec[i];
                             }
                         };
 
                         if num_rows > 1 {
-                            (0..num_rows).into_par_iter().for_each(row_op);
+                             x_slice.par_chunks_exact(hidden_size)
+                                 .zip(result_vec.par_chunks_exact_mut(hidden_size))
+                                 .for_each(process_row);
                         } else {
-                            (0..num_rows).for_each(row_op);
+                             x_slice.chunks_exact(hidden_size)
+                                 .zip(result_vec.chunks_exact_mut(hidden_size))
+                                 .for_each(process_row);
                         }
                     });
 
@@ -253,34 +249,54 @@ impl RmsNorm {
                 / hidden_size;
 
             arch.dispatch(|| {
-                let row_op = |r: usize| {
-                    let start = r * hidden_size;
-                    let end = start + hidden_size;
-
+                let process_row = |(row, res_row): (&[f32], &mut [f32])| {
                     let mut sum_sq = 0.0f32;
-                    unsafe {
-                        let row_ptr = result.as_ptr().add(start);
-                        let row = std::slice::from_raw_parts(row_ptr, hidden_size);
-                        for chunk in row.chunks_exact(8) {
-                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
-                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
-                        }
-                        for &val in row.chunks_exact(8).remainder() {
-                            sum_sq += val * val;
-                        }
+                    for chunk in row.chunks_exact(8) {
+                        sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
+                                  chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                    }
+                    for &val in row.chunks_exact(8).remainder() {
+                        sum_sq += val * val;
+                    }
 
-                        let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
-                        let res_row = std::slice::from_raw_parts_mut(result.as_mut_ptr().add(start), hidden_size);
-                        for i in 0..hidden_size {
-                            res_row[i] = res_row[i] * inv_norm * weight_vec[i];
-                        }
+                    let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                    for i in 0..hidden_size {
+                        res_row[i] = res_row[i] * inv_norm * weight_vec[i];
                     }
                 };
 
                 if num_rows > 1 {
-                    (0..num_rows).into_par_iter().for_each(row_op);
+                    result.par_chunks_exact_mut(hidden_size).for_each(|res_row| {
+                        let mut sum_sq = 0.0f32;
+                        for chunk in res_row.chunks_exact(8) {
+                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
+                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                        }
+                        for &val in res_row.chunks_exact(8).remainder() {
+                            sum_sq += val * val;
+                        }
+
+                        let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                        for i in 0..hidden_size {
+                            res_row[i] = res_row[i] * inv_norm * weight_vec[i];
+                        }
+                    });
                 } else {
-                    (0..num_rows).for_each(row_op);
+                    result.chunks_exact_mut(hidden_size).for_each(|res_row| {
+                        let mut sum_sq = 0.0f32;
+                        for chunk in res_row.chunks_exact(8) {
+                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
+                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                        }
+                        for &val in res_row.chunks_exact(8).remainder() {
+                            sum_sq += val * val;
+                        }
+
+                        let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                        for i in 0..hidden_size {
+                            res_row[i] = res_row[i] * inv_norm * weight_vec[i];
+                        }
+                    });
                 }
             });
 
@@ -391,8 +407,12 @@ impl RotaryEmbedding {
             t.matmul(&inv_freq)?;
 
         Ok(Self {
-            sin: freqs.sin()?,
-            cos: freqs.cos()?,
+            sin: freqs
+                .sin()?
+                .contiguous()?,
+            cos: freqs
+                .cos()?
+                .contiguous()?,
         })
     }
 
@@ -403,19 +423,18 @@ impl RotaryEmbedding {
         seqlen_offset: usize,
     ) -> Result<(Tensor, Tensor)> {
 
-        let (_b, _h, seq_len, _d) =
-            q.dims4()?;
+        let (b, h, s, d) = q.dims4()?;
 
         let cos = self.cos.narrow(
             0,
             seqlen_offset,
-            seq_len,
+            s,
         )?;
 
         let sin = self.sin.narrow(
             0,
             seqlen_offset,
-            seq_len,
+            s,
         )?;
 
         let (q_embed, k_embed) =
@@ -450,10 +469,11 @@ impl MLP {
         xs: &Tensor,
     ) -> Result<Tensor> {
 
-        let (lhs, rhs) = rayon::join(
+        let (gate, up) = rayon::join(
             || {
 
-                self.gate_proj.forward(xs)?.apply(&candle_nn::Activation::NewGelu)
+                self.gate_proj
+                    .forward(xs)
             },
             || {
 
@@ -462,7 +482,65 @@ impl MLP {
             },
         );
 
-        (lhs? * rhs?)?.apply(
+        let mut gate = gate?;
+
+        let up = up?;
+
+        // Optimization: In-place Gelu and Multiplication
+        // This avoids two intermediate tensor allocations (Gelu result and Mul result)
+        // and combines two passes into one SIMD-accelerated pass.
+        if gate
+            .device()
+            .is_cpu()
+            && gate.dtype()
+                == DType::F32
+            && up.dtype() == DType::F32
+        {
+
+            let (g_storage, g_layout) =
+                gate.storage_and_layout(
+                );
+
+            let (u_storage, u_layout) =
+                up.storage_and_layout();
+
+            if let (candle_core::Storage::Cpu(g_cpu), candle_core::Storage::Cpu(u_cpu)) = (&*g_storage, &*u_storage) {
+                 if g_layout.is_contiguous() && u_layout.is_contiguous() {
+                     // We need to be careful with mutation in candle. 
+                     // Since we have ownership of 'gate' (it's a new tensor from projection), we can mutate its storage.
+                     // However, candle doesn't give us a &mut [f32] easily. 
+                     // We'll use unsafe to get a mutable pointer to the storage we own.
+                     let g_ptr = g_cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
+                     let u_ptr = u_cpu.as_slice::<f32>()?.as_ptr();
+                     let len = g_layout.shape().elem_count();
+
+                     let arch = Arch::new();
+                     arch.dispatch(|| {
+                         unsafe {
+                             let g_slice = std::slice::from_raw_parts_mut(g_ptr.add(g_layout.start_offset()), len);
+                             let u_slice = std::slice::from_raw_parts(u_ptr.add(u_layout.start_offset()), len);
+
+                             // NewGelu approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+                             const SQRT_2_PI: f32 = 0.79788456;
+                             for i in 0..len {
+                                 let x = g_slice[i];
+                                 let x3 = x * x * x;
+                                 let inner = SQRT_2_PI * (x + 0.044715 * x3);
+                                 let res = 0.5 * x * (1.0 + inner.tanh());
+                                 g_slice[i] = res * u_slice[i];
+                             }
+                         }
+                     });
+
+                     return gate.apply(&self.down_proj.inner);
+                 }
+             }
+        }
+
+        // Fallback
+        let lhs = gate.apply(&candle_nn::Activation::NewGelu)?;
+
+        (lhs * up)?.apply(
             &self.down_proj.inner,
         )
     }
@@ -500,20 +578,16 @@ impl Attention {
 
         let (q, (k, v)) = rayon::join(
             || {
-
                 self.q_proj
                     .forward(xs)
             },
             || {
-
                 rayon::join(
                     || {
-
                         self.k_proj
                             .forward(xs)
                     },
                     || {
-
                         self.v_proj
                             .forward(xs)
                     },
@@ -521,40 +595,27 @@ impl Attention {
             },
         );
 
-        let q = q?;
+        let q = q?.reshape((
+            b_sz,
+            q_len,
+            self.num_heads,
+            self.head_dim,
+        ))?;
 
-        let k = k?;
+        let k = k?.reshape((
+            b_sz,
+            q_len,
+            self.num_kv_heads,
+            self.head_dim,
+        ))?;
 
-        let v = v?;
+        let v = v?.reshape((
+            b_sz,
+            q_len,
+            self.num_kv_heads,
+            self.head_dim,
+        ))?;
 
-        let q = q
-            .reshape((
-                b_sz,
-                q_len,
-                self.num_heads,
-                self.head_dim,
-            ))?
-            .transpose(1, 2)?;
-
-        let k = k
-            .reshape((
-                b_sz,
-                q_len,
-                self.num_kv_heads,
-                self.head_dim,
-            ))?
-            .transpose(1, 2)?;
-
-        let v = v
-            .reshape((
-                b_sz,
-                q_len,
-                self.num_kv_heads,
-                self.head_dim,
-            ))?
-            .transpose(1, 2)?;
-
-        // Apply Q/K Norm BEFORE RoPE (matches gemma3.cpp)
         let q = self
             .q_norm
             .forward(&q)?;
@@ -563,6 +624,14 @@ impl Attention {
             .k_norm
             .forward(&k)?;
 
+        // Transpose to (b, h, s, d) for RoPE and Attention
+        let q = q.transpose(1, 2)?;
+
+        let k = k.transpose(1, 2)?;
+
+        let v = v.transpose(1, 2)?;
+
+        // Apply RoPE
         let (q, k) = self
             .rotary_emb
             .apply(
@@ -571,6 +640,7 @@ impl Attention {
                 seqlen_offset,
             )?;
 
+        // KV Cache Update
         let (k, v) = match &self
             .kv_cache
         {
@@ -596,23 +666,65 @@ impl Attention {
             v.clone(),
         ));
 
-        let k = repeat_kv(
-            &k,
-            self.num_kv_groups,
-        )?;
+        // GQA Expansion: (b, n_kv, s, d) -> (b, n_h, s, d)
+        let total_s = k.dims()[2];
 
-        let v = repeat_kv(
-            &v,
-            self.num_kv_groups,
-        )?;
+        let k = if self.num_kv_heads
+            != self.num_heads
+        {
+
+            k.unsqueeze(2)?
+                .broadcast_as((
+                    b_sz,
+                    self.num_kv_heads,
+                    self.num_kv_groups,
+                    total_s,
+                    self.head_dim,
+                ))?
+                .contiguous()?
+                .reshape((
+                    b_sz,
+                    self.num_heads,
+                    total_s,
+                    self.head_dim,
+                ))?
+        } else {
+
+            k
+        };
+
+        let v = if self.num_kv_heads
+            != self.num_heads
+        {
+
+            v.unsqueeze(2)?
+                .broadcast_as((
+                    b_sz,
+                    self.num_kv_heads,
+                    self.num_kv_groups,
+                    total_s,
+                    self.head_dim,
+                ))?
+                .contiguous()?
+                .reshape((
+                    b_sz,
+                    self.num_heads,
+                    total_s,
+                    self.head_dim,
+                ))?
+        } else {
+
+            v
+        };
+
+        let k_t = k.transpose(2, 3)?;
 
         let scale = 1.0
             / (self.head_dim as f64)
                 .sqrt();
 
-        let att = (q.matmul(
-            &k.transpose(2, 3)?,
-        )? * scale)?;
+        let att =
+            (q.matmul(&k_t)? * scale)?;
 
         let att = match mask {
             | None => att,
@@ -623,47 +735,18 @@ impl Attention {
 
         let att = candle_nn::ops::softmax_last_dim(&att)?;
 
-        let out = att.matmul(&v)?;
-
-        out.transpose(1, 2)?
-            .reshape((b_sz, q_len, ()))?
-            .apply(&self.o_proj.inner)
-    }
-}
-
-#[cfg(feature = "ssr")]
-
-fn repeat_kv(
-    xs: &Tensor,
-    n: usize,
-) -> Result<Tensor> {
-
-    if n == 1 {
-
-        Ok(xs.clone())
-    } else {
-
-        let (
-            b_sz,
-            n_heads,
-            seq_len,
-            head_dim,
-        ) = xs.dims4()?;
-
-        xs.unsqueeze(2)?
-            .expand((
-                b_sz,
-                n_heads,
-                n,
-                seq_len,
-                head_dim,
-            ))?
+        // Output: (b, h, s, total_s) matmul (b, h, total_s, d) -> (b, h, s, d)
+        let out = att
+            .matmul(&v)?
+            .transpose(1, 2)? // (b, s, h, d)
+            .contiguous()?
             .reshape((
                 b_sz,
-                n_heads * n,
-                seq_len,
-                head_dim,
-            ))
+                q_len,
+                (),
+            ))?;
+
+        out.apply(&self.o_proj.inner)
     }
 }
 
@@ -993,38 +1076,51 @@ impl Model {
         let (b_sz, seq_len) =
             input_ids.dims2()?;
 
+        // Streamlined mask generation
         let mask = if seq_len <= 1 {
 
             None
         } else {
 
-            let mask: Vec<_> = (0..seq_len)
-                .flat_map(|i| (0..seq_len).map(move |j| if i < j { f32::NEG_INFINITY } else { 0.0 }))
-                .collect();
+            let mut mask_vec = vec![
+                    0.0f32;
+                    seq_len * seq_len
+                ];
 
-            let mask =
-                Tensor::from_slice(
-                    &mask,
-                    (seq_len, seq_len),
+            for i in 0 .. seq_len {
+
+                for j in
+                    i + 1 .. seq_len
+                {
+
+                    mask_vec[i * seq_len + j] = f32::NEG_INFINITY;
+                }
+            }
+
+            Some(
+                Tensor::from_vec(
+                    mask_vec,
+                    (
+                        1,
+                        1,
+                        seq_len,
+                        seq_len,
+                    ),
                     &self.device,
-                )?;
-
-            let mask = mask
-                .unsqueeze(0)?
-                .unsqueeze(0)?
-                .to_dtype(self.dtype)?;
-
-            Some(mask)
+                )?
+                .to_dtype(self.dtype)?,
+            )
         };
 
         let xs = self
             .embed_tokens
             .forward(input_ids)?;
 
-        let mut xs = (xs
-            * (self.hidden_size
-                as f64)
-                .sqrt())?;
+        let scale = (self.hidden_size
+            as f64)
+            .sqrt();
+
+        let mut xs = (xs * scale)?;
 
         for layer in self
             .layers
@@ -1038,6 +1134,7 @@ impl Model {
             )?;
         }
 
+        // Final normalization and projection for the last token only
         let xs = xs
             .narrow(1, seq_len - 1, 1)?
             .apply(&self.norm)?;
@@ -1046,14 +1143,53 @@ impl Model {
             &self.lm_head.inner,
         )?;
 
-        // Correct Gemma 3 Logit Soft-Capping: tanh(logits / cap) * cap
-        let cap = 30.0;
+        // Optimized logit soft-capping: tanh(logits / cap) * cap
+        let cap = 30.0f64;
 
-        logits = ((logits / cap)?
-            .tanh()?
-            * cap)?;
+        if logits
+            .device()
+            .is_cpu()
+            && logits.dtype()
+                == DType::F32
+        {
 
-        Ok(logits)
+            logits =
+                logits.contiguous()?;
+
+            let (storage, layout) =
+                logits
+                    .storage_and_layout(
+                    );
+
+            if let candle_core::Storage::Cpu(cpu) = &*storage {
+                        let ptr = cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
+                        let len = layout.shape().elem_count();
+                        let arch = Arch::new();
+                        arch.dispatch(|| {
+                            unsafe {
+                                let offset = layout.start_offset();
+                                let slice = std::slice::from_raw_parts_mut(ptr.add(offset), len);
+                                let cap_f32 = cap as f32;
+                                let inv_cap_f32 = 1.0 / cap_f32;
+                                for i in 0..len {
+                                    slice[i] = (slice[i] * inv_cap_f32).tanh() * cap_f32;
+                                }
+                            }
+                        });
+                        drop(storage);
+                        return Ok(logits);
+                    }
+        }
+
+        // Fallback for non-CPU/non-F32
+        let inv_cap = 1.0 / cap;
+
+        let logits = logits
+            .affine(inv_cap, 0.0)?;
+
+        let logits = logits.tanh()?;
+
+        logits.affine(cap, 0.0)
     }
 
     pub fn clear_kv_cache(&mut self) {
@@ -1222,17 +1358,57 @@ impl Gemma3 {
                     start_pos,
                 )?;
 
-            let logits = logits
-                .squeeze(0)?
-                .squeeze(0)?;
+            // Optimized argmax: Access CPU storage directly to avoid tensor metadata overhead
+            // and multiple squeeze() operations.
+            let next_token = if logits
+                .device()
+                .is_cpu()
+            {
 
-            let logits_f32 = logits
-                .to_dtype(DType::F32)?;
+                let (storage, layout) = logits.storage_and_layout();
 
-            // Greedily pick the next token (optimized: single operation)
-            let next_token = logits_f32
-                .argmax(D::Minus1)?
-                .to_scalar::<u32>()?;
+                if let candle_core::Storage::Cpu(cpu) = &*storage {
+                    let slice = cpu.as_slice::<f32>()?;
+                    let offset = layout.start_offset();
+                    let len = layout.shape().elem_count();
+                    let slice = &slice[offset..offset + len];
+
+                    let mut max_val = f32::NEG_INFINITY;
+                    let mut max_idx = 0;
+
+                    let arch = Arch::new();
+                    arch.dispatch(|| {
+                        // SIMD-friendly argmax
+                        for (i, chunk) in slice.chunks_exact(16).enumerate() {
+                            for j in 0..16 {
+                                let v = chunk[j];
+                                if v > max_val {
+                                    max_val = v;
+                                    max_idx = i * 16 + j;
+                                }
+                            }
+                        }
+
+                        // Remaining elements
+                        let rem_start = (slice.len() / 16) * 16;
+                        for (i, &v) in slice[rem_start..].iter().enumerate() {
+                            if v > max_val {
+                                max_val = v;
+                                max_idx = rem_start + i;
+                            }
+                        }
+                    });
+                    max_idx as u32
+                } else {
+                    logits.argmax(D::Minus1)?.to_scalar::<u32>()?
+                }
+            } else {
+
+                logits
+                    .argmax(D::Minus1)?
+                    .to_scalar::<u32>(
+                    )?
+            };
 
             // Early termination check before decoding (performance optimization)
             // Check for common EOS tokens first
@@ -1245,7 +1421,6 @@ impl Gemma3 {
 
             tokens_vec.push(next_token);
 
-            // Decode token (single call, no redundant decode)
             let token_text = self
                 .tokenizer
                 .decode(
@@ -1256,11 +1431,21 @@ impl Gemma3 {
                     anyhow::Error::msg,
                 )?;
 
-            // Check for end markers before appending (optimization)
+            // Helpful for debugging why self-test or generation might fail
+            log::info!(
+                "      [Token {}] id: \
+                 {}, text: '{}'",
+                i,
+                next_token,
+                token_text.replace(
+                    "\n", "\\n"
+                )
+            );
+
             if token_text.contains(
                 "<end_of_turn>",
             ) || token_text
-                .contains("<|im_end|>")
+                .contains("<eos>")
             {
 
                 break;
@@ -1270,7 +1455,6 @@ impl Gemma3 {
                 .push_str(&token_text);
         }
 
-        // println!("🏁 Generation complete.");
         Ok(generated)
     }
 
@@ -1278,7 +1462,14 @@ impl Gemma3 {
         &mut self
     ) -> anyhow::Result<()> {
 
-        // println!("🧪 Running AI Self-Test (Checking if model can say 'YES')...");
+        use log;
+
+        log::info!(
+            "🧪 Running AI Self-Test \
+             (Checking if model can \
+             say 'YES')..."
+        );
+
         // More standard prompt for Gemma models
         let res = self.complete(
             "<start_of_turn>user\\
@@ -1290,7 +1481,10 @@ impl Gemma3 {
             || false,
         )?;
 
-        // println!("  Test Result: '{}'", res);
+        log::info!(
+            "  Test Result: '{}'",
+            res
+        );
 
         // Very lenient check since it's a tiny model
         let upper = res.to_uppercase();
@@ -1299,14 +1493,26 @@ impl Gemma3 {
             || upper.contains("NO")
         {
 
-            // println!("✅ Self-test passed (Found '{}').", upper.trim());
+            log::info!(
+                "✅ Self-test passed \
+                 (Found '{}').",
+                upper.trim()
+            );
+
             Ok(())
         } else if !res
             .trim()
             .is_empty()
         {
 
-            // println!("⚠️ Self-test produced non-YES/NO output: '{}'. Proceeding anyway.", res.trim());
+            log::info!(
+                "⚠️ Self-test \
+                 produced non-YES/NO \
+                 output: '{}'. \
+                 Proceeding anyway.",
+                res.trim()
+            );
+
             Ok(())
         } else {
 
