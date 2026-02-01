@@ -865,7 +865,7 @@ impl Model {
                 &mut reader,
             )?;
 
-        // log::info!("📝 GGUF Keys:");
+        log::info!("📝 GGUF Keys:");
         for key in content
             .tensor_infos
             .keys()
@@ -874,13 +874,13 @@ impl Model {
             if key.contains("blk.0")
                 || !key.contains("blk.")
             {
-                // log::info!("  {}", key);
+                log::info!("  {}", key);
             }
         }
 
         let cfg = Config::gemma3_270m();
 
-        // log::info!("🧠 Initializing Model with Config: {:?}", cfg);
+        log::info!("🧠 Initializing Model with Config: {:?}", cfg);
 
         let mut layers =
             Vec::with_capacity(
@@ -1018,7 +1018,7 @@ impl Model {
                 ffn_norm,
                 post_ffn_norm,
             });
-            // log::info!("  Layer {} loaded", i);
+            log::info!("  Layer {} loaded", i);
         }
 
         let norm_w = content
@@ -1052,7 +1052,7 @@ impl Model {
             )
         {
 
-            // log::info!("💡 Weight tying detected: using token_embd.weight for output.weight");
+            log::info!("💡 Weight tying detected: using token_embd.weight for output.weight");
             content.tensor(
                 &mut reader,
                 "token_embd.weight",
@@ -1072,7 +1072,7 @@ impl Model {
             lm_head_weight,
         )?;
 
-        // log::info!("✨ Model loading complete.");
+        log::info!("✨ Model loading complete.");
 
         Ok(Self {
             embed_tokens,
@@ -1352,14 +1352,14 @@ impl Gemma3 {
                 max_tokens * 4,
             );
 
-        // log::info!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
+        log::info!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
 
         for i in 0 .. max_tokens {
 
             // Check for cancellation
             if check_cancel() {
 
-                // log::info!("✋ Generation stopped (cancellation signal).");
+                log::info!("✋ Generation stopped (cancellation signal).");
                 break;
             }
 
@@ -1564,7 +1564,7 @@ impl Drop for Gemma3 {
         // We use log::info! or log! if available. Since it's library code, log::info might be safer or log.
         // But let's assume `log` crate is available as it's used in lib.rs
         // Actually ai.rs does not import log. We can add `use log;` or just log::info.
-        // log::info!(
+        // println!(
         //     "♻️ Gemma3 Model is being \
         //      dropped/deallocated."
         // );
