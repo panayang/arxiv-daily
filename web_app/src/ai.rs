@@ -109,6 +109,7 @@ impl QLinear {
 
 pub struct RmsNorm {
     weight: Tensor,
+    weight_data: Option<Vec<f32>>,
     eps: f64,
 }
 
@@ -120,8 +121,30 @@ impl RmsNorm {
         eps: f64,
     ) -> Self {
 
+        let weight_data = if weight
+            .device()
+            .is_cpu()
+        {
+
+            weight
+                .to_dtype(DType::F32)
+                .ok()
+                .and_then(|t| {
+
+                    t.flatten_all()
+                        .ok()?
+                        .to_vec1::<f32>(
+                        )
+                        .ok()
+                })
+        } else {
+
+            None
+        };
+
         Self {
             weight,
+            weight_data,
             eps,
         }
     }
@@ -141,20 +164,82 @@ impl RmsNorm {
         // instead of multiple intermediate tensors (sqr, sum, div, sqrt, etc.)
         if x.device().is_cpu()
             && x_dtype == DType::F32
+            && self
+                .weight_data
+                .is_some()
         {
 
             let dims = x.dims();
 
-            let x_vec = x
-                .flatten_all()?
-                .to_vec1::<f32>()?;
+            let weight_vec = self
+                .weight_data
+                .as_ref()
+                .unwrap();
+
+            // Try to avoid copy by accessing storage directly if possible
+            let (storage, layout) =
+                x.storage_and_layout();
+
+            if let candle_core::Storage::Cpu(cpu) = &*storage {
+                if layout.is_contiguous() {
+                    let full_slice = cpu.as_slice::<f32>()?;
+                    let x_slice = &full_slice[layout.start_offset()..layout.start_offset() + layout.shape().elem_count()];
+
+                    let mut result_vec = vec![0.0f32; x_slice.len()];
+                    let arch = Arch::new();
+
+                    let hidden_size = *dims.last().unwrap();
+                    let num_elements = x_slice.len();
+                    let num_rows = num_elements / hidden_size;
+
+                    arch.dispatch(|| {
+                        let row_op = |r: usize| {
+                            let start = r * hidden_size;
+                            let end = start + hidden_size;
+                            let row = &x_slice[start..end];
+
+                            let mut sum_sq = 0.0f32;
+                            for chunk in row.chunks_exact(8) {
+                                sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
+                                          chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                            }
+                            for &val in row.chunks_exact(8).remainder() {
+                                sum_sq += val * val;
+                            }
+
+                            let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                            let res_row_ptr = result_vec.as_ptr() as *mut f32;
+
+                            unsafe {
+                                let res_row = std::slice::from_raw_parts_mut(res_row_ptr.add(start), hidden_size);
+                                for i in 0..hidden_size {
+                                    res_row[i] = row[i] * inv_norm * weight_vec[i];
+                                }
+                            }
+                        };
+
+                        if num_rows > 1 {
+                            (0..num_rows).into_par_iter().for_each(row_op);
+                        } else {
+                            (0..num_rows).for_each(row_op);
+                        }
+                    });
+
+                    return Tensor::from_vec(result_vec, dims, x.device());
+                }
+            }
+
+            // Fallback to to_vec1 (which copies from GPU/complex layout) if storage access failed
+            let dims = x.dims();
 
             let weight_vec = self
-                .weight
-                .to_vec1::<f32>()?;
+                .weight_data
+                .as_ref()
+                .unwrap();
 
-            let mut result =
-                x_vec.clone();
+            let mut result = x
+                .flatten_all()?
+                .to_vec1::<f32>()?;
 
             let arch = Arch::new();
 
@@ -162,42 +247,32 @@ impl RmsNorm {
                 *dims.last().unwrap();
 
             let num_elements =
-                x_vec.len();
+                result.len();
 
             let num_rows = num_elements
                 / hidden_size;
 
             arch.dispatch(|| {
-                // Use rayon to process rows in parallel if there are multiple rows (e.g., initial prompt)
                 let row_op = |r: usize| {
                     let start = r * hidden_size;
                     let end = start + hidden_size;
-                    let row = &x_vec[start..end];
 
                     let mut sum_sq = 0.0f32;
-                    // Manual SIMD loop (compiler usually vectorizes this within arch.dispatch)
-                    // We can also use pulp vectors explicitly if we want more control
-                    for chunk in row.chunks_exact(8) {
-                        sum_sq += chunk[0] * chunk[0];
-                        sum_sq += chunk[1] * chunk[1];
-                        sum_sq += chunk[2] * chunk[2];
-                        sum_sq += chunk[3] * chunk[3];
-                        sum_sq += chunk[4] * chunk[4];
-                        sum_sq += chunk[5] * chunk[5];
-                        sum_sq += chunk[6] * chunk[6];
-                        sum_sq += chunk[7] * chunk[7];
-                    }
-                    for &val in row.chunks_exact(8).remainder() {
-                        sum_sq += val * val;
-                    }
-
-                    let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
-                    let res_row_ptr = result.as_ptr() as *mut f32;
-
                     unsafe {
-                        let res_row = std::slice::from_raw_parts_mut(res_row_ptr.add(start), hidden_size);
+                        let row_ptr = result.as_ptr().add(start);
+                        let row = std::slice::from_raw_parts(row_ptr, hidden_size);
+                        for chunk in row.chunks_exact(8) {
+                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
+                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                        }
+                        for &val in row.chunks_exact(8).remainder() {
+                            sum_sq += val * val;
+                        }
+
+                        let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                        let res_row = std::slice::from_raw_parts_mut(result.as_mut_ptr().add(start), hidden_size);
                         for i in 0..hidden_size {
-                            res_row[i] = row[i] * inv_norm * weight_vec[i];
+                            res_row[i] = res_row[i] * inv_norm * weight_vec[i];
                         }
                     }
                 };
