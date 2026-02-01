@@ -130,6 +130,8 @@ struct Args {
 
 async fn main() {
 
+    env_logger::init();
+
     let _args = Args::parse();
 
     use axum::Router;

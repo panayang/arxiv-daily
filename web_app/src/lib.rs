@@ -33,7 +33,12 @@ use tokio::sync::Mutex;
 use tokio::sync::OnceCell;
 
 #[derive(
-    Clone, Debug, serde::Serialize, serde::Deserialize, bincode_next::Encode, bincode_next::Decode,
+    Clone,
+    Debug,
+    serde::Serialize,
+    serde::Deserialize,
+    bincode_next::Encode,
+    bincode_next::Decode,
 )]
 
 pub enum FilterStreamMessage {
@@ -42,6 +47,7 @@ pub enum FilterStreamMessage {
     Error(String), // Recoverable error
 }
 
+#[allow(unused_variables)]
 #[server(GetPapers, "/api", input = Bitcode, output = Bitcode)]
 
 pub async fn get_papers(
@@ -223,7 +229,7 @@ pub async fn get_papers(
     use rayon::prelude::*;
     use sqlx::Row;
 
-    let mut papers: Vec<Paper> = rows
+    let papers: Vec<Paper> = rows
         .into_par_iter()
         .map(|row| {
             let updated: DateTime<Utc> = row.try_get("updated").unwrap_or_else(|_| Utc::now());
@@ -1100,6 +1106,18 @@ static MODEL: Mutex<
     >,
 > = Mutex::const_new(None);
 
+#[cfg(feature = "ssr")]
+
+static ACTIVE_MODEL_WEAK: Mutex<
+    Option<
+        std::sync::Weak<
+            std::sync::Mutex<
+                ai::Gemma3,
+            >,
+        >,
+    >,
+> = Mutex::const_new(None);
+
 
 #[server(UnloadModel, "/api/unload_model", input = Bitcode, output = Bitcode)]
 
@@ -1113,15 +1131,57 @@ pub async fn unload_model()
     let mut model = MODEL.lock().await;
 
     // Always increment generation to invalidate streams immediately
-    MODEL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let old_gen = MODEL_GENERATION.load(std::sync::atomic::Ordering::Relaxed);
+
+    let new_gen = MODEL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+    log::info!(
+        "🔄 Generation incremented: \
+         {} -> {}",
+        old_gen,
+        new_gen
+    );
 
     if model.is_some() {
 
-        *model = None;
+        // Take ownership to get strong count before dropping
+        let model_arc = model.take();
+
+        if let Some(arc) = model_arc {
+
+            let strong_count =
+                Arc::strong_count(&arc);
+
+            log::info!(
+                "📊 Model Arc strong \
+                 count before drop: {}",
+                strong_count
+            );
+
+            // Explicitly drop the Arc
+            drop(arc);
+        }
+
+        // Also clear the weak reference tracker
+        let mut weak_lock =
+            ACTIVE_MODEL_WEAK
+                .lock()
+                .await;
+
+        *weak_lock = None;
+
+        drop(weak_lock);
+
+        // Release the MODEL lock to allow other tasks to see None
+        drop(model);
+
+        // Give a moment for in-flight spawn_blocking tasks to finish and drop their references
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
         log::info!(
-            "AI Model dropped from \
-             global storage."
+            "✅ AI Model dropped from \
+             global storage. Memory \
+             should be freed shortly."
         );
     } else {
 
@@ -1131,12 +1191,10 @@ pub async fn unload_model()
         );
     }
 
-    // Force a small GC pause? No, Rust doesn't have GC.
     Ok(())
 }
 
 use leptos::server_fn::codec::ByteStream;
-use leptos_meta::*;
 
 #[server(StreamAiFilter, "/api/stream_filter", input=Bitcode, output=Streaming)]
 
@@ -1149,11 +1207,11 @@ pub async fn stream_ai_filter(
     {
 
         use std::sync::Arc;
+        use std::sync::Weak;
         use std::sync::atomic::Ordering;
 
         use bytes::Bytes;
         use futures::StreamExt;
-        use tokio::sync::Mutex;
 
         // Fast path check
         if negative_query.is_empty() {
@@ -1179,6 +1237,12 @@ pub async fn stream_ai_filter(
                     Ordering::Relaxed,
                 );
 
+            log::info!(
+                "📡 Stream starting \
+                 with generation: {}",
+                r#gen
+            );
+
             if let Some(m) =
                 &*model_lock
             {
@@ -1189,53 +1253,120 @@ pub async fn stream_ai_filter(
                 )
             } else {
 
-                let (model_path, tokenizer_path) = if std::path::Path::new("assets/llm.bin").exists() {
-                    let tok_path = if std::path::Path::new("assets/tokenizer.json").exists() {
-                        "assets/tokenizer.json".to_string()
-                    } else {
-                         "assets/tokenizer.bin".to_string()
-                    };
-                    ("assets/llm.bin".to_string(), tok_path)
-                } else if std::path::Path::new("../assets/llm.bin").exists() {
-                    let tok_path = if std::path::Path::new("../assets/tokenizer.json").exists() {
-                        "../assets/tokenizer.json".to_string()
-                    } else {
-                         "../assets/tokenizer.bin".to_string()
-                    };
-                    ("../assets/llm.bin".to_string(), tok_path)
+                // Check if an old model is still lingering in memory (phantom model)
+                let mut cleanup_retries =
+                    0;
+
+                loop {
+
+                    let weak_lock = ACTIVE_MODEL_WEAK.lock().await;
+
+                    if let Some(weak) =
+                        &*weak_lock
+                    {
+
+                        if weak
+                            .upgrade()
+                            .is_some()
+                        {
+
+                            if cleanup_retries > 10 {
+                                 // After ~2 seconds, give up
+                                 return Err(ServerFnError::new("System busy: Previous model is still unloading. Please retry in a few seconds."));
+                             }
+
+                            log::warn!("Old model still active (memory cleanup pending). Waiting...");
+
+                            drop(weak_lock); // Release lock
+                            drop(model_lock); // Release main lock to allow other threads to progress
+                            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+
+                            // Re-acquire main lock
+                            model_lock = MODEL.lock().await;
+
+                            // Check if someone else loaded it while we slept
+                            if let Some(m) = &*model_lock {
+                                 // Model was loaded by another request while we waited. Use it.
+                                 // Break out of retry loop - we'll use this model
+                                 break;
+                             }
+
+                            cleanup_retries += 1;
+
+                            continue; // Continue the loop to re-check
+                        }
+                    }
+
+                    break; // No active weak ref or weak ref is dead, proceed to load
+                }
+
+                // After potential waiting, re-check if model was loaded by another request
+                if let Some(m) =
+                    &*model_lock
+                {
+
+                    (Arc::downgrade(m), MODEL_GENERATION.load(Ordering::Relaxed))
                 } else {
-                    ("assets/llm.bin".to_string(), "assets/tokenizer.json".to_string())
-                };
 
-                log::info!(
-                    "Loading custom \
-                     Gemma 3 model \
-                     from {}... \
-                     (spawn_blocking)",
-                    model_path
-                );
+                    let (model_path, tokenizer_path) = if std::path::Path::new("assets/llm.bin").exists() {
+                        let tok_path = if std::path::Path::new("assets/tokenizer.json").exists() {
+                            "assets/tokenizer.json".to_string()
+                        } else {
+                             "assets/tokenizer.bin".to_string()
+                        };
+                        ("assets/llm.bin".to_string(), tok_path)
+                    } else if std::path::Path::new("../assets/llm.bin").exists() {
+                        let tok_path = if std::path::Path::new("../assets/tokenizer.json").exists() {
+                            "../assets/tokenizer.json".to_string()
+                        } else {
+                             "../assets/tokenizer.bin".to_string()
+                        };
+                        ("../assets/llm.bin".to_string(), tok_path)
+                    } else {
+                        ("assets/llm.bin".to_string(), "assets/tokenizer.json".to_string())
+                    };
 
-                // Offload loading to blocking thread
-                let gemma_res = tokio::task::spawn_blocking(move || {
-                    let mut gemma = ai::Gemma3::new(model_path, tokenizer_path)
-                        .map_err(|e| format!("Failed to load Gemma 3 model: {}", e))?;
-                    gemma.set_initialized(true);
-                    // Do a quick self-test?
-                    // gemma.self_test().map_err(|e| format!("{}", e))?;
-                    Ok::<ai::Gemma3, String>(gemma)
-                }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
+                    log::info!(
+                        "Loading custom \
+                         Gemma 3 model \
+                         from {}... \
+                         (spawn_blocking)",
+                        model_path
+                    );
 
-                let gemma = gemma_res.map_err(|e| ServerFnError::new(e))?;
+                    // Offload loading to blocking thread
+                    let gemma_res = tokio::task::spawn_blocking(move || {
+                        let mut gemma = ai::Gemma3::new(model_path, tokenizer_path)
+                            .map_err(|e| format!("Failed to load Gemma 3 model: {}", e))?;
+                        gemma.set_initialized(true);
+                        // Do a quick self-test?
+                        // gemma.self_test().map_err(|e| format!("{}", e))?;
+                        Ok::<ai::Gemma3, String>(gemma)
+                    }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
 
-                let m = Arc::new(std::sync::Mutex::new(gemma));
+                    let gemma = gemma_res.map_err(|e| ServerFnError::new(e))?;
 
-                *model_lock =
-                    Some(m.clone());
+                    let m = Arc::new(std::sync::Mutex::new(gemma));
 
-                (
-                    Arc::downgrade(&m),
-                    r#gen,
-                )
+                    *model_lock =
+                        Some(m.clone());
+
+                    // Update Active Weak Ref
+                    let mut weak_lock = ACTIVE_MODEL_WEAK.lock().await;
+
+                    *weak_lock = Some(
+                        Arc::downgrade(
+                            &m,
+                        ),
+                    );
+
+                    (
+                        Arc::downgrade(
+                            &m,
+                        ),
+                        r#gen,
+                    )
+                }
             }
         };
 
@@ -1247,7 +1378,9 @@ pub async fn stream_ai_filter(
 
                 async move {
                     // 1. Check generation
-                    if MODEL_GENERATION.load(Ordering::Relaxed) != params_gen {
+                    let current = MODEL_GENERATION.load(Ordering::Relaxed);
+                    if current != params_gen {
+                         log::info!("⏹️ Stream stopping: gen {} != {}", current, params_gen);
                          return Ok(FilterStreamMessage::Stopped);
                     }
 
@@ -1276,8 +1409,14 @@ pub async fn stream_ai_filter(
                         let mut model = model_arc.lock().map_err(|_| "Poisoned lock")?;
 
                         // Check generation inside inference loop
-                        let check_cancel = move || {
-                            MODEL_GENERATION.load(Ordering::Relaxed) != params_gen
+                        // Use a non-move closure to ensure we read MODEL_GENERATION fresh each time
+                        let check_cancel = || {
+                            let current = MODEL_GENERATION.load(Ordering::Relaxed);
+                            let cancelled = current != params_gen;
+                            if cancelled {
+                                log::info!("🛑 Cancellation detected: gen {} != {}", current, params_gen);
+                            }
+                            cancelled
                         };
 
                         model.complete(&prompt, 3, check_cancel).map_err(|e| e.to_string())
@@ -2009,7 +2148,7 @@ fn Dashboard() -> impl IntoView {
                     }
                 });
             },
-            std::time::Duration::from_millis(300),
+            std::time::Duration::from_millis(1000),
         );
 
         move || {
@@ -2245,6 +2384,9 @@ fn Dashboard() -> impl IntoView {
             .set("".to_string());
 
         set_end_date_filter
+            .set("".to_string());
+
+        set_negative_query
             .set("".to_string());
 
         set_page.set(1);

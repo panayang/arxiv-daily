@@ -989,7 +989,7 @@ impl Gemma3 {
             // Check for cancellation
             if check_cancel() {
 
-                // println!("🛑 Generation cancelled by signal.");
+                // log::info!("✋ Generation stopped (cancellation signal).");
                 break;
             }
 
