@@ -1207,7 +1207,6 @@ pub async fn stream_ai_filter(
     {
 
         use std::sync::Arc;
-        use std::sync::Weak;
         use std::sync::atomic::Ordering;
 
         use bytes::Bytes;
@@ -1285,6 +1284,7 @@ pub async fn stream_ai_filter(
                             model_lock = MODEL.lock().await;
 
                             // Check if someone else loaded it while we slept
+                            #[allow(unused_variables)]
                             if let Some(m) = &*model_lock {
                                  // Model was loaded by another request while we waited. Use it.
                                  // Break out of retry loop - we'll use this model

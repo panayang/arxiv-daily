@@ -130,6 +130,29 @@ struct Args {
 
 async fn main() {
 
+    let default_level =
+        if cfg!(debug_assertions) {
+
+            "info"
+        } else {
+
+            "error"
+        };
+
+    if std::env::var("RUST_LOG")
+        .is_err()
+    {
+
+        #[allow(unsafe_code)]
+        unsafe {
+
+            std::env::set_var(
+                "RUST_LOG",
+                default_level,
+            );
+        }
+    }
+
     env_logger::init();
 
     let _args = Args::parse();
