@@ -1,68 +1,98 @@
 @import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&display=swap');
 
 @config "../tailwind.config.js";
 
 @theme {
-  --color-obsidian-bg: #1a1b1e;
-  --color-obsidian-sidebar: #25262b;
-  --color-obsidian-card: #2c2d32;
-  --color-obsidian-accent: #5c7cfa;
-  --color-obsidian-accent-light: #748ffc;
-  --color-obsidian-text: #c1c2c5;
-  --color-obsidian-heading: #ffffff;
+  --color-obsidian-bg: #0f1012;
+  --color-obsidian-sidebar: #16171a;
+  --color-obsidian-card: #1c1d21;
+  --color-obsidian-accent: #3b82f6;
+  --color-obsidian-accent-light: #60a5fa;
+  --color-obsidian-text: #94a3b8;
+  --color-obsidian-heading: #f8fafc;
+  --font-sans: 'Outfit', ui-sans-serif, system-ui, sans-serif;
 }
 
 @layer base {
   body {
-    @apply bg-obsidian-bg text-obsidian-text selection:bg-obsidian-accent/30;
-    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+    @apply bg-obsidian-bg text-obsidian-text selection:bg-obsidian-accent/30 selection:text-white transition-colors duration-500 font-sans;
   }
 }
 
 @layer utilities {
-
-  /* Glassmorphism effect */
   .glass {
-    background: rgba(255, 255, 255, 0.05);
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
 
-  /* Animated gradient background */
+  .glass-dark {
+    background: rgba(0, 0, 0, 0.3);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .glow-hover {
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .glow-hover:hover {
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.15);
+    border-color: rgba(59, 130, 246, 0.3);
+    transform: translateY(-4px) scale(1.01);
+  }
+
+  .text-glow {
+    text-shadow: 0 0 15px rgba(59, 130, 246, 0.5);
+  }
+
+  .gradient-text {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-obsidian-accent to-obsidian-accent-light;
+  }
+
   .gradient-animate {
-    background: linear-gradient(45deg, #5c7cfa, #748ffc, #5c7cfa);
-    background-size: 200% 200%;
-    animation: gradient-shift 3s ease infinite;
+    background: linear-gradient(-45deg, #0f1012, #16171a, #1e293b, #111827);
+    background-size: 400% 400%;
+    animation: gradient-flow 15s ease infinite;
   }
 
-  /* Shimmer loading effect */
   .shimmer {
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
     background-size: 200% 100%;
-    animation: shimmer 1.5s infinite;
+    animation: shimmer 2s infinite;
   }
 
-  /* Pulse glow effect */
-  .pulse-glow {
-    animation: pulse-glow 2s ease-in-out infinite;
+  .stagger-1 {
+    animation-delay: 100ms;
   }
 
-  /* Float animation */
-  .float {
-    animation: float 3s ease-in-out infinite;
+  .stagger-2 {
+    animation-delay: 200ms;
+  }
+
+  .stagger-3 {
+    animation-delay: 300ms;
+  }
+
+  .stagger-4 {
+    animation-delay: 400ms;
   }
 }
 
-@keyframes gradient-shift {
-
-  0%,
-  100% {
+@keyframes gradient-flow {
+  0% {
     background-position: 0% 50%;
   }
 
   50% {
     background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0% 50%;
   }
 }
 
@@ -76,26 +106,60 @@
   }
 }
 
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @keyframes pulse-glow {
 
   0%,
   100% {
-    box-shadow: 0 0 20px rgba(92, 124, 250, 0.3);
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
   }
 
   50% {
-    box-shadow: 0 0 30px rgba(92, 124, 250, 0.6);
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.4);
   }
 }
 
-@keyframes float {
+.animate-slide-up {
+  animation: slide-up 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
+.animate-fade-in {
+  animation: fade-in 1s ease-out both;
+}
 
-  50% {
-    transform: translateY(-10px);
-  }
+.animate-scale-in {
+  animation: scale-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
 }

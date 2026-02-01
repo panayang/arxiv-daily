@@ -338,28 +338,36 @@ pub fn SurpriseModal(
 
     view! {
         <Show when=move || show.get()>
-            <div class="fixed inset-0 bg-black/80 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-300">
-                <div class="bg-obsidian-sidebar border border-white/10 w-full max-w-lg rounded-3xl shadow-2xl relative overflow-hidden animate-in zoom-in-95 duration-300">
-                    <div class="p-8 space-y-6 text-center">
-                        <div class="flex items-center justify-between text-left">
-                            <h2 class="text-2xl font-black text-white tracking-tight">"Surprise Box"</h2>
-                            <button on:click=move |_| on_close.run(()) class="text-white/40 hover:text-white transition-colors text-2xl">"✕"</button>
+            <div class="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/40 backdrop-blur-md animate-fade-in" on:click=move |_| on_close.run(())>
+                <div class="glass-dark border border-white/10 rounded-[2.5rem] w-full max-w-lg shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] overflow-hidden animate-scale-in" on:click=|ev| ev.stop_propagation()>
+                    <div class="px-8 py-6 border-b border-white/5 flex justify-between items-center">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-obsidian-accent/10 rounded-xl">
+                                <svg class="w-5 h-5 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                                </svg>
+                            </div>
+                            <h2 class="text-xl font-black text-obsidian-heading tracking-tight">"Cipher Box"</h2>
                         </div>
+                        <button on:click=move |_| on_close.run(()) class="w-10 h-10 rounded-full flex items-center justify-center text-obsidian-text/40 hover:bg-white/5 hover:text-white transition-all">"✕"</button>
+                    </div>
 
-                        <div class="py-4 flex justify-center">
-                            <div class="w-16 h-16 bg-gradient-to-br from-obsidian-accent to-obsidian-accent/50 rounded-2xl flex items-center justify-center shadow-lg shadow-obsidian-accent/20 animate-bounce">
-                                <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                    <div class="p-8 space-y-8 text-center">
+                        <div class="relative py-4 flex justify-center">
+                            <div class="absolute inset-0 bg-obsidian-accent/20 blur-3xl rounded-full scale-50"></div>
+                            <div class="relative w-20 h-20 bg-gradient-to-br from-obsidian-accent to-obsidian-accent-light rounded-3xl flex items-center justify-center shadow-2xl shadow-obsidian-accent/30 animate-pulse">
+                                <svg class="w-10 h-10 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                                 </svg>
                             </div>
                         </div>
 
                         <div class="space-y-4">
-                            <p class="text-obsidian-text/60 text-sm">"Enter your mathematical key to unlock the secret."</p>
+                            <p class="text-[12px] text-obsidian-text/40 font-bold uppercase tracking-[0.2em]">"Mathematical Key Injection"</p>
                             <input
                                 type="text"
-                                placeholder="e.g. x^6"
-                                class="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white focus:ring-2 focus:ring-obsidian-accent/50 outline-none transition-all placeholder:text-white/10 text-center font-mono"
+                                placeholder="Input expr (e.g. x^6)"
+                                class="w-full bg-black/40 border border-white/5 rounded-2xl px-6 py-4 text-white focus:ring-2 focus:ring-obsidian-accent/30 outline-none transition-all placeholder:text-white/5 text-center font-mono text-lg shadow-inner"
                                 on:input=move |ev| set_key_input.set(event_target_value(&ev))
                                 prop:value=key_input
                                 on:keydown=move |ev| {
@@ -370,29 +378,35 @@ pub fn SurpriseModal(
                             />
                             <button
                                 on:click=move |_| { let _ = decrypt_action.dispatch(key_input.get()); }
-                                class="w-full bg-obsidian-accent hover:bg-obsidian-accent/80 text-white font-bold py-4 rounded-xl transition-all shadow-lg shadow-obsidian-accent/20 disabled:opacity-50 active:scale-95"
+                                class="w-full bg-gradient-to-br from-obsidian-accent to-obsidian-accent/80 hover:brightness-110 text-white font-black uppercase tracking-[0.2em] text-[11px] py-4 rounded-2xl transition-all shadow-[0_10px_30px_-10px_rgba(59,130,246,0.6)] disabled:opacity-30 active:scale-95 group"
                                 disabled=pending
                             >
-                                <Show when=move || pending.get() fallback=|| "Unlock Surprise">"Unlocking..."</Show>
+                                <Show when=move || pending.get() fallback=|| "Initiate Decryption">
+                                    <div class="flex items-center justify-center gap-2">
+                                        <div class="w-3 h-3 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                                        "Cracking..."
+                                    </div>
+                                </Show>
                             </button>
                         </div>
 
                         <Transition fallback=|| ()>
                             {move || result.get().map(|res| match res {
                                 Ok(msg) => view! {
-                                    <div class="mt-6 p-8 bg-gradient-to-br from-obsidian-accent/10 to-transparent border border-obsidian-accent/20 rounded-2xl animate-in slide-in-from-bottom-8 zoom-in-90 duration-700 relative group">
-                                        <div class="absolute -top-3 left-1/2 -translate-x-1/2 bg-obsidian-accent text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full text-white">"Decrypted"</div>
-                                        <p class="text-obsidian-accent leading-relaxed italic text-lg font-medium">"\"" {msg} "\""</p>
-                                        <div class="mt-4 flex justify-center gap-1">
-                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping"></div>
-                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping delay-100"></div>
-                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-ping delay-200"></div>
+                                    <div class="mt-8 p-8 bg-white/2 border border-obsidian-accent/20 rounded-3xl animate-scale-in relative group overflow-hidden">
+                                        <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-obsidian-accent to-transparent opacity-50"></div>
+                                        <div class="text-[9px] font-black uppercase tracking-[0.3em] text-obsidian-accent/40 mb-4">"Interpreted Signal"</div>
+                                        <p class="text-white leading-relaxed italic text-lg font-bold tracking-tight">"\"" {msg} "\""</p>
+                                        <div class="mt-6 flex justify-center gap-1.5 opacity-20">
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-bounce"></div>
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-bounce delay-150"></div>
+                                            <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-bounce delay-300"></div>
                                         </div>
                                     </div>
                                 }.into_any(),
                                 Err(e) => view! {
-                                    <div class="mt-6 p-4 bg-red-500/10 border border-red-500/20 rounded-xl animate-shake duration-300">
-                                        <p class="text-red-400 text-sm font-bold">{e.to_string()}</p>
+                                    <div class="mt-8 p-4 bg-red-500/5 border border-red-500/10 rounded-2xl animate-shake">
+                                        <p class="text-red-400 text-[11px] font-black uppercase tracking-wider">{e.to_string()}</p>
                                     </div>
                                 }.into_any(),
                             })}
