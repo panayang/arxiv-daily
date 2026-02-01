@@ -11700,6 +11700,7 @@ dependencies = [
  "console_error_panic_hook",
  "console_log",
  "feed-rs",
+ "futures",
  "futures-util",
  "http 1.4.0",
  "kalosm",

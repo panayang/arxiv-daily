@@ -962,6 +962,7 @@ impl Gemma3 {
         &mut self,
         prompt: &str,
         max_tokens: usize,
+        check_cancel: impl Fn() -> bool,
     ) -> anyhow::Result<String> {
 
         self.model
@@ -984,6 +985,13 @@ impl Gemma3 {
         // println!("🎹 Tokens: {:?}", &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]);
 
         for i in 0 .. max_tokens {
+
+            // Check for cancellation
+            if check_cancel() {
+
+                // println!("🛑 Generation cancelled by signal.");
+                break;
+            }
 
             let context_size = if i == 0
             {
@@ -1087,6 +1095,7 @@ impl Gemma3 {
              1+1=2?<end_of_turn>\\
              n<start_of_turn>model\n",
             5,
+            || false,
         )?;
 
         // println!("  Test Result: '{}'", res);
@@ -1114,5 +1123,28 @@ impl Gemma3 {
                  tokens generated"
             ))
         }
+    }
+}
+
+#[cfg(feature = "ssr")]
+
+impl Drop for Gemma3 {
+    fn drop(&mut self) {
+
+        // Simple log to verify destruction on server stdout
+        // We use println! or log! if available. Since it's library code, println might be safer or log.
+        // But let's assume `log` crate is available as it's used in lib.rs
+        // Actually ai.rs does not import log. We can add `use log;` or just println.
+        // println!(
+        //     "♻️ Gemma3 Model is being \
+        //      dropped/deallocated."
+        // );
+
+        use log;
+
+        log::info!(
+            "♻️ Gemma3 Model is being \
+             dropped/deallocated."
+        );
     }
 }

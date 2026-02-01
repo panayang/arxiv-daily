@@ -79,6 +79,7 @@ leptos_workers = { version = "0.3", features = ["ssr"] }
 wgpu = "28.0"
 regex = "1.10"
 latex2mathml = "0.2"
+futures = "0.3.31"
 
 [features]
 default = ["ssr"]
@@ -87,6 +88,7 @@ hydrate = [
     "dep:wasm-bindgen",
     "dep:console_error_panic_hook",
     "dep:console_log",
+    "dep:futures-util",
 ]
 ssr = [
     "leptos/ssr",

@@ -9,12 +9,15 @@
 use std::sync::Arc;
 use std::sync::LazyLock;
 
+use bincode_next::config;
 use bitcode::Decode;
 use bitcode::Encode;
 use latex2mathml::DisplayStyle;
 use latex2mathml::latex_to_mathml;
 use leptos::prelude::*;
 use leptos::server_fn::codec::Bitcode;
+use leptos::server_fn::codec::Streaming;
+use leptos::task::spawn_local;
 use leptos_meta::*;
 use leptos_router::components::*;
 use leptos_router::*;
@@ -237,22 +240,9 @@ pub async fn get_papers(
 
     #[cfg(feature = "ssr")]
     if !negative_query.is_empty() {
-
-        if use_llm {
-
-            papers = filter_with_ai(
-                papers,
-                negative_query,
-            )
-            .await;
-        } else {
-
-            papers =
-                filter_with_keywords(
-                    papers,
-                    negative_query,
-                );
-        }
+        // AI filtering is now handled progressively on the client
+        // to prevent long blocking times.
+        // The papers are returned "raw" and then filtered via stream.
     }
 
     Ok(papers)
@@ -1079,28 +1069,251 @@ async fn get_db_path()
 #[cfg(feature = "ssr")]
 mod ai;
 
+// Restore generation tracking for explicit invalidation
+#[cfg(feature = "ssr")]
+
+static MODEL_GENERATION:
+    std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(
+        0,
+    );
+
 #[cfg(feature = "ssr")]
 
 static MODEL: Mutex<
-    Option<Arc<Mutex<ai::Gemma3>>>,
+    Option<
+        Arc<
+            std::sync::Mutex<
+                ai::Gemma3,
+            >,
+        >,
+    >,
 > = Mutex::const_new(None);
 
-#[server(UnloadModel, "/api", input = Bitcode, output = Bitcode)]
+
+#[server(UnloadModel, "/api/unload_model", input = Bitcode, output = Bitcode)]
 
 pub async fn unload_model()
 -> Result<(), ServerFnError> {
 
     log::info!(
-        "Unloading AI model from \
-         RAM..."
+        "Request to unload AI model..."
     );
 
     let mut model = MODEL.lock().await;
 
-    *model = None;
+    // Always increment generation to invalidate streams immediately
+    MODEL_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+    if model.is_some() {
+
+        *model = None;
+
+        log::info!(
+            "AI Model dropped from \
+             global storage."
+        );
+    } else {
+
+        log::info!(
+            "AI Model was already not \
+             loaded."
+        );
+    }
+
+    // Force a small GC pause? No, Rust doesn't have GC.
     Ok(())
 }
+
+use leptos::server_fn::codec::ByteStream;
+use leptos_meta::*;
+
+#[server(StreamAiFilter, "/api/stream_filter", input=Bitcode, output=Streaming)]
+
+pub async fn stream_ai_filter(
+    papers: Vec<Paper>,
+    negative_query: String,
+) -> Result<ByteStream, ServerFnError> {
+
+    #[cfg(feature = "ssr")]
+    {
+
+        use std::sync::Arc;
+        use std::sync::atomic::Ordering;
+
+        use bytes::Bytes;
+        use futures::StreamExt;
+        use tokio::sync::Mutex;
+
+        // Fast path check
+        if negative_query.is_empty() {
+
+            return Ok(ByteStream::new(futures::stream::iter::<Vec<Result<Bytes, ServerFnError>>>(vec![])));
+        }
+
+        log::info!(
+            "Streaming AI filter for \
+             {} papers with query: \
+             '{}'",
+            papers.len(),
+            negative_query
+        );
+
+        let (model_weak, current_gen) = {
+
+            let mut model_lock =
+                MODEL.lock().await;
+
+            let r#gen =
+                MODEL_GENERATION.load(
+                    Ordering::Relaxed,
+                );
+
+            if let Some(m) =
+                &*model_lock
+            {
+
+                (
+                    Arc::downgrade(m),
+                    r#gen,
+                )
+            } else {
+
+                let (model_path, tokenizer_path) = if std::path::Path::new("assets/llm.bin").exists() {
+                    let tok_path = if std::path::Path::new("assets/tokenizer.json").exists() {
+                        "assets/tokenizer.json".to_string()
+                    } else {
+                         "assets/tokenizer.bin".to_string()
+                    };
+                    ("assets/llm.bin".to_string(), tok_path)
+                } else if std::path::Path::new("../assets/llm.bin").exists() {
+                    let tok_path = if std::path::Path::new("../assets/tokenizer.json").exists() {
+                        "../assets/tokenizer.json".to_string()
+                    } else {
+                         "../assets/tokenizer.bin".to_string()
+                    };
+                    ("../assets/llm.bin".to_string(), tok_path)
+                } else {
+                    ("assets/llm.bin".to_string(), "assets/tokenizer.json".to_string())
+                };
+
+                log::info!(
+                    "Loading custom \
+                     Gemma 3 model \
+                     from {}... \
+                     (spawn_blocking)",
+                    model_path
+                );
+
+                // Offload loading to blocking thread
+                let gemma_res = tokio::task::spawn_blocking(move || {
+                    let mut gemma = ai::Gemma3::new(model_path, tokenizer_path)
+                        .map_err(|e| format!("Failed to load Gemma 3 model: {}", e))?;
+                    gemma.set_initialized(true);
+                    // Do a quick self-test?
+                    // gemma.self_test().map_err(|e| format!("{}", e))?;
+                    Ok::<ai::Gemma3, String>(gemma)
+                }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
+
+                let gemma = gemma_res.map_err(|e| ServerFnError::new(e))?;
+
+                let m = Arc::new(std::sync::Mutex::new(gemma));
+
+                *model_lock =
+                    Some(m.clone());
+
+                (
+                    Arc::downgrade(&m),
+                    r#gen,
+                )
+            }
+        };
+
+        let stream = futures::stream::iter(papers)
+             .then(move |paper| {
+                let model_weak = model_weak.clone();
+                let negative_query = negative_query.clone();
+                let params_gen = current_gen;
+
+                async move {
+                    // 1. Check generation
+                    if MODEL_GENERATION.load(Ordering::Relaxed) != params_gen {
+                         return Err(ServerFnError::new("Model invalidated/unloaded"));
+                    }
+
+                    // 2. Try to upgrade Weak
+                    let model_arc = match model_weak.upgrade() {
+                        Some(arc) => arc,
+                        None => return Err(ServerFnError::new("Model dropped")),
+                    };
+
+                    // 3. Yield to prevent CPU starvation on single-threaded runtimes or heavy load
+                    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+                    let summary_snippet = if paper.summary.len() > 300 {
+                        format!("{}...", &paper.summary[0..300])
+                    } else {
+                        paper.summary.clone()
+                    };
+
+                    let prompt = format!(
+                        "<start_of_turn>user\nInstructions: Respond ONLY with YES or NO.\nNegative Filter: Skip papers related to \"{}\".\nPaper Title: {}\nSummary Snippet: {}\nQuestion: Should I skip this paper?\nAnswer: <end_of_turn>\n<start_of_turn>model\n",
+                        negative_query, paper.title, summary_snippet
+                    );
+
+                    // Offload blocking inference
+                    let result = tokio::task::spawn_blocking(move || {
+                        let mut model = model_arc.lock().map_err(|_| "Poisoned lock")?;
+
+                        // Check generation inside inference loop
+                        let check_cancel = move || {
+                            MODEL_GENERATION.load(Ordering::Relaxed) != params_gen
+                        };
+
+                        model.complete(&prompt, 3, check_cancel).map_err(|e| e.to_string())
+                    }).await;
+
+                    let response = match result {
+                        Ok(Ok(r)) => r,
+                        Ok(Err(e)) => {
+                             log::error!("AI completion internal error: {}", e);
+                             return Ok((paper.id, true));
+                        }
+                        Err(e) => {
+                            log::error!("AI task join error: {}", e);
+                             return Ok((paper.id, true));
+                        }
+                    };
+
+                    let response = response.trim().to_uppercase();
+                    let is_excluded = response.contains("YES");
+
+                    Ok((paper.id, !is_excluded))
+                }
+            })
+            // Filter out errors (like "Model unloaded") to stop the stream gracefully
+            .take_while(|r| futures::future::ready(r.is_ok()))
+            .map(|result| result.unwrap()) // We know it's Ok here due to take_while.
+            .map(|val: (String, bool)| {
+                 let config = config::standard();
+                 let bytes: Vec<u8> = bincode_next::encode_to_vec(&val, config)
+                    .map_err(|e| ServerFnError::new(e.to_string()))?;
+                 Ok(Bytes::from(bytes))
+            });
+
+        Ok(ByteStream::new(
+            stream,
+        ))
+    }
+
+    #[cfg(not(feature = "ssr"))]
+    unreachable!(
+        "stream_ai_filter should only \
+         be called on server via \
+         server function"
+    )
+}
+
 
 fn html_escape(text: &str) -> String {
 
@@ -1501,189 +1714,6 @@ pub fn render_math(
 }
 
 #[cfg(feature = "ssr")]
-
-async fn filter_with_ai(
-    papers: Vec<Paper>,
-    negative_query: String,
-) -> Vec<Paper> {
-
-    if negative_query.is_empty()
-        || papers.is_empty()
-    {
-
-        return papers;
-    }
-
-    log::info!(
-        "AI filtering {} papers with \
-         negative filter: '{}'",
-        papers.len(),
-        negative_query
-    );
-
-    let mut model_lock =
-        MODEL.lock().await;
-
-    let model_mu = if let Some(m) =
-        &*model_lock
-    {
-
-        m.clone()
-    } else {
-
-        let (
-            model_path,
-            tokenizer_path,
-        ) = if std::path::Path::new(
-            "assets/llm.bin",
-        )
-        .exists()
-        {
-
-            (
-                "assets/llm.bin"
-                    .to_string(),
-                "assets/tokenizer.bin"
-                    .to_string(),
-            )
-        } else if std::path::Path::new(
-            "../assets/llm.bin",
-        )
-        .exists()
-        {
-
-            (
-                "../assets/llm.bin"
-                    .to_string(),
-                "../assets/tokenizer.\
-                 bin"
-                .to_string(),
-            )
-        } else {
-
-            (
-                "assets/llm.bin"
-                    .to_string(),
-                "assets/tokenizer.bin"
-                    .to_string(),
-            )
-        };
-
-        log::info!(
-            "Loading custom Gemma 3 \
-             model from {}...",
-            model_path
-        );
-
-        let mut gemma =
-            ai::Gemma3::new(
-                model_path,
-                tokenizer_path,
-            )
-            .expect(
-                "Failed to load Gemma \
-                 3 model",
-            );
-
-        // Run self-test
-        // gemma.self_test().expect("AI Self-test failed");
-        gemma.set_initialized(true);
-
-        let m =
-            Arc::new(Mutex::new(gemma));
-
-        *model_lock = Some(m.clone());
-
-        m
-    };
-
-    drop(model_lock);
-
-    let mut model = model_mu
-        .lock()
-        .await;
-
-    let mut filtered_papers =
-        Vec::new();
-
-    for paper in papers {
-
-        let summary_snippet = if paper
-            .summary
-            .len()
-            > 300
-        {
-
-            format!(
-                "{}...",
-                &paper.summary
-                    [0 .. 300]
-            )
-        } else {
-
-            paper
-                .summary
-                .clone()
-        };
-
-        let prompt = format!(
-            "<start_of_turn>user\\
-             nInstructions: Respond \
-             ONLY with YES or \
-             NO.\nNegative Filter: \
-             Skip papers related to \
-             \"{}\".\nPaper Title: \
-             {}\nSummary Snippet: \
-             {}\nQuestion: Should I \
-             skip this paper?\nAnswer: \
-             <end_of_turn>\\
-             n<start_of_turn>model\n",
-            negative_query,
-            paper.title,
-            summary_snippet
-        );
-
-        let response = match model
-            .complete(&prompt, 3)
-        {
-            | Ok(r) => r,
-            | Err(e) => {
-
-                log::error!(
-                    "AI completion \
-                     error: {}",
-                    e
-                );
-
-                filtered_papers
-                    .push(paper);
-
-                continue;
-            },
-        };
-
-        let response = response
-            .trim()
-            .to_uppercase();
-
-        let is_excluded =
-            response.contains("YES");
-
-        if !is_excluded {
-
-            filtered_papers.push(paper);
-        } else {
-
-            log::info!(
-                "AI Filtered out: {}",
-                paper.title
-            );
-        }
-    }
-
-    filtered_papers
-}
-
 #[allow(dead_code)]
 
 fn filter_with_keywords(
@@ -1829,6 +1859,14 @@ fn Dashboard() -> impl IntoView {
 
     let (show_about, set_show_about) =
         signal(false);
+
+    let (
+        hidden_paper_ids,
+        set_hidden_paper_ids,
+    ) = signal(
+        std::collections::HashSet::new(
+        ),
+    );
 
     #[derive(
         Clone, Default, PartialEq,
@@ -1999,6 +2037,68 @@ fn Dashboard() -> impl IntoView {
         );
 
         set_page.set(1);
+    });
+
+    // Client-side AI streaming effect
+    Effect::new(move |_| {
+
+        let papers_result =
+            papers.get();
+
+        let neg_query =
+            negative_query.get();
+
+        let use_llm_flag =
+            use_llm.get();
+
+        if let Some(Ok(
+            current_papers,
+        )) = papers_result
+        {
+
+            // Only stream if we have papers, a negative query, and LLM is enabled
+            if !neg_query.is_empty()
+                && use_llm_flag
+            {
+
+                spawn_local(
+                    async move {
+
+                        // Start fresh
+                        set_hidden_paper_ids.set(std::collections::HashSet::new());
+
+                        match stream_ai_filter(current_papers, neg_query).await {
+                        Ok(byte_stream) => {
+                            use futures::StreamExt;
+                            // Unwrap the ByteStream newtype to get the actual stream
+                            let mut stream = byte_stream.into_inner();
+
+                            while let Some(chunk_res) = stream.next().await {
+                                match chunk_res {
+                                    Ok(chunk) => {
+                                        // chunk should be Bytes
+                                        let config = config::standard();
+                                        if let Ok(((id, keep), _size)) = bincode_next::decode_from_slice::<(String, bool), _>(&chunk, config) {
+                                            if !keep {
+                                                set_hidden_paper_ids.update(|set| {
+                                                    set.insert(id);
+                                                });
+                                            }
+                                        }
+                                    }
+                                    Err(e) => log::error!("Stream error: {}", e),
+                                }
+                            }
+                        }
+                        Err(e) => log::error!("Streaming filter failed: {}", e),
+                    }
+                    },
+                );
+            } else {
+
+                set_hidden_paper_ids.set(std::collections::HashSet::new());
+            }
+        }
     });
 
     let unload_action =
@@ -2286,8 +2386,14 @@ fn Dashboard() -> impl IntoView {
                                                 <For
                                                     each=move || current_papers.clone()
                                                     key=|paper| paper.id.clone()
-                                                    children=|paper| {
-                                                        view! { <PaperCard paper=paper/> }
+                                                    children=move |paper| {
+                                                        let paper_id = paper.id.clone();
+                                                        let is_hidden = move || hidden_paper_ids.get().contains(&paper_id);
+                                                        view! {
+                                                            <Show when=move || !is_hidden()>
+                                                                <PaperCard paper=paper.clone()/>
+                                                            </Show>
+                                                        }
                                                     }
                                                 />
                                             </div>
