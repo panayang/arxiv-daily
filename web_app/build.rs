@@ -284,8 +284,42 @@ fn main() -> Result<
 
         let mut results = Vec::new();
 
-        for chunk in payload_bytes
-            .chunks(chunk_size)
+        // Context-dependent encryption to prevent frequency analysis
+        // Initialize context with a salt derived from the key length and first chars
+        let mut context = BigInt::from(
+            0x5A5A5A5A_u32,
+        );
+
+        if !surprise
+            .key
+            .is_empty()
+        {
+
+            // Mix in key-dependent salt
+            for b in surprise
+                .key
+                .as_bytes()
+                .iter()
+                .take(10)
+            {
+
+                context = (&context
+                    * BigInt::from(31))
+                    + BigInt::from(
+                        *b as u64,
+                    );
+            }
+
+            context = context
+                % BigInt::from(
+                    0xFFFFFFFF_u64,
+                );
+        }
+
+        for (index, chunk) in
+            payload_bytes
+                .chunks(chunk_size)
+                .enumerate()
         {
 
             // Prepend a 1 byte to distinguish from trailing zeros and keep x > 255
@@ -299,11 +333,35 @@ fn main() -> Result<
 
             let p = BigInt::from_bytes_be(Sign::Plus, &chunk_with_sentinel);
 
-            // Evaluate at P
+            // Mix context into plaintext to make encryption position-dependent
+            let position_factor =
+                BigInt::from(
+                    (index + 1) as u64,
+                );
+
+            // Non-linear mixing: p + ((context * pos) % large_prime)
+            // This makes p_mixed much larger and harder to pre-calculate
+            let context_mod = (&context
+                * &position_factor)
+                % BigInt::from(
+                    0xFFFFFF_u64,
+                );
+
+            let p_mixed =
+                &p + &context_mod;
+
+            if index == 0 {
+
+                println!("cargo:warning=Chunk 0: p={}, context={}, pos_factor={}, context_mod={}, p_mixed={}", p, context, position_factor, context_mod, p_mixed);
+            }
+
+            // Evaluate at P_mixed (context-dependent plaintext)
             let eval_expr = substitute(
                 &deriv,
                 "x",
-                &Expr::BigInt(p),
+                &Expr::BigInt(
+                    p_mixed.clone(),
+                ),
             );
 
             let r =
@@ -320,6 +378,25 @@ fn main() -> Result<
             // Aggressively force evaluation of numeric parts
             let evaled =
                 force_bigint_eval(r);
+
+            // Update context for next iteration
+            // Must match decryption exactly!
+            let cipher_val_bigint = match &evaled {
+                Expr::BigInt(n) => n.clone(),
+                Expr::Constant(f) => BigInt::from(f.round() as i64),
+                Expr::Rational(r) => r.to_integer(),
+                _ => BigInt::from(0),
+            };
+
+            context = (&context
+                * BigInt::from(31))
+                + &cipher_val_bigint
+                + &position_factor;
+
+            context = context
+                % BigInt::from(
+                    0xFFFFFFFF_u64,
+                );
 
             results.push(evaled);
         }
@@ -659,15 +736,16 @@ fn force_bigint_eval(
     root_expr: Expr
 ) -> Expr {
 
+    use std::sync::Arc;
+
     use num_traits::Signed;
     use num_traits::ToPrimitive;
     use num_traits::Zero;
 
-    // Stack-based iterative approach
-    let root_expr_clone =
-        root_expr.clone();
+    let root = root_expr
+        .to_ast()
+        .unwrap_or(root_expr.clone());
 
-    // Helper to extract float value for approximate evaluation
     let try_eval_float =
         |e: &Expr| -> Option<f64> {
 
@@ -683,7 +761,7 @@ fn force_bigint_eval(
         };
 
     let mut visit_stack =
-        vec![(root_expr, false)];
+        vec![(root, false)];
 
     let mut output_stack: Vec<Expr> =
         Vec::new();
@@ -694,56 +772,135 @@ fn force_bigint_eval(
 
         if visited {
 
-            // Reconstruct node from children on output_stack and FOLD if possible
             match expr {
-                Expr::Add(_, _) => {
-                    let rhs = output_stack.pop().unwrap();
-                    let lhs = output_stack.pop().unwrap();
+                | Expr::Add(_, _) => {
+
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
                     match (lhs, rhs) {
-                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va + vb)),
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0))),
-                        (la, ra) => output_stack.push(Expr::Add(Arc::new(la), Arc::new(ra))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Add(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Add(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
+                        (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Sub(_, _) => {
-                    let rhs = output_stack.pop().unwrap();
-                    let lhs = output_stack.pop().unwrap();
+                | Expr::Sub(_, _) => {
+
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
                     match (lhs, rhs) {
-                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va - vb)),
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0))),
-                        (la, ra) => output_stack.push(Expr::Sub(Arc::new(la), Arc::new(ra))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Sub(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Sub(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
+                        (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Mul(_, _) => {
-                    let rhs = output_stack.pop().unwrap();
-                    let lhs = output_stack.pop().unwrap();
+                | Expr::Mul(_, _) => {
+
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
                     match (lhs, rhs) {
-                        (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va * vb)),
+                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0))),
-                        (la, ra) => output_stack.push(Expr::Mul(Arc::new(la), Arc::new(ra))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Mul(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Mul(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
+                        (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Div(_, _) => {
-                     let rhs = output_stack.pop().unwrap();
-                     let lhs = output_stack.pop().unwrap();
-                     match (lhs, rhs) {
-                         (Expr::BigInt(va), Expr::BigInt(vb)) if !vb.is_zero() && &va % &vb == BigInt::from(0) =>
-                             output_stack.push(Expr::BigInt(va / vb)),
-                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
-                         (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
-                         (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))),
-                         (la, ra) => output_stack.push(Expr::Div(Arc::new(la), Arc::new(ra))),
-                     }
+                | Expr::Div(_, _) => {
+
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    match (lhs, rhs) {
+                        (Expr::BigInt(la), Expr::BigInt(lb)) if !lb.is_zero() && &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))),
+                        (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
+                    }
                 },
-                Expr::Power(_, _) => {
-                    let rhs = output_stack.pop().unwrap();
-                    let lhs = output_stack.pop().unwrap();
+                | Expr::Power(_, _) => {
+
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
                     match (lhs, rhs) {
                         (Expr::BigInt(base), Expr::BigInt(exp)) => {
                             if let Some(e) = exp.to_u32() {
@@ -757,164 +914,336 @@ fn force_bigint_eval(
                         (Expr::Constant(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.powf(e))),
                         (Expr::BigInt(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e))),
                         (Expr::Constant(b), Expr::BigInt(e)) => output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0)))),
-                        (la, ra) => output_stack.push(Expr::Power(Arc::new(la), Arc::new(ra))),
+                        (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Neg(_) => {
-                    let inner = output_stack.pop().unwrap();
+                | Expr::Neg(_) => {
+
+                    let inner =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
                     match inner {
-                        Expr::BigInt(v) => output_stack.push(Expr::BigInt(-v)),
+                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
                         other => output_stack.push(Expr::Neg(Arc::new(other))),
                     }
                 },
-                Expr::Sin(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.sin()));
+                | Expr::Sin(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| {
+                            x.sin()
+                        })
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Sin(Arc::new(v)));
                     }
                 },
-                Expr::Cos(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.cos()));
+                | Expr::Cos(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| {
+                            x.cos()
+                        })
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Cos(Arc::new(v)));
                     }
                 },
-                Expr::Tan(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.tan()));
+                | Expr::Tan(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| {
+                            x.tan()
+                        })
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Tan(Arc::new(v)));
                     }
                 },
-                Expr::Exp(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.exp()));
+                | Expr::Exp(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| {
+                            x.exp()
+                        })
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Exp(Arc::new(v)));
                     }
                 },
-                Expr::Log(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.ln()));
+                | Expr::Log(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| x.ln())
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Log(Arc::new(v)));
                     }
                 },
-                Expr::Abs(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
+                | Expr::Abs(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                    {
+
                         output_stack.push(Expr::Constant(f.abs()));
                     } else {
+
                         match v {
                             Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
                             _ => output_stack.push(Expr::Abs(Arc::new(v))),
                         }
                     }
                 },
-                Expr::Sqrt(_) => {
-                    let v = output_stack.pop().unwrap();
-                    if let Some(f) = try_eval_float(&v) {
-                        output_stack.push(Expr::Constant(f.sqrt()));
+                | Expr::Sqrt(_) => {
+
+                    let v =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    if let Some(f) =
+                        try_eval_float(
+                            &v,
+                        )
+                        .map(|x| {
+                            x.sqrt()
+                        })
+                    {
+
+                        if (f - f
+                            .round())
+                        .abs()
+                            < 1e-6
+                        {
+
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+
+                            output_stack.push(Expr::Constant(f));
+                        }
                     } else {
+
                         output_stack.push(Expr::Sqrt(Arc::new(v)));
                     }
                 },
-                Expr::LogBase(_, _) => {
-                    let rhs = output_stack.pop().unwrap();
-                    let lhs = output_stack.pop().unwrap();
-                    output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
-                },
-                Expr::AddList(list) => {
-                    let len = list.len();
-                    let mut children = Vec::with_capacity(len);
-                    for _ in 0..len {
-                        children.push(output_stack.pop().unwrap());
-                    }
-                    children.reverse();
+                | Expr::LogBase(
+                    _,
+                    _,
+                ) => {
 
-                    let all_bigint = children.iter().all(|c| matches!(c, Expr::BigInt(_)));
-                    if all_bigint {
-                        let mut sum = BigInt::from(0);
-                        for c in children {
-                            if let Expr::BigInt(n) = c {sum += n;}
-                        }
-                        output_stack.push(Expr::BigInt(sum));
-                    } else {
-                        output_stack.push(Expr::AddList(children));
-                    }
-                },
-                Expr::MulList(list) => {
-                    let len = list.len();
-                    let mut children = Vec::with_capacity(len);
-                    for _ in 0..len {
-                        children.push(output_stack.pop().unwrap());
-                    }
-                    children.reverse();
+                    let rhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
 
-                    let all_bigint = children.iter().all(|c| matches!(c, Expr::BigInt(_)));
-                    if all_bigint {
-                        let mut prod = BigInt::from(1);
-                        for c in children {
-                            if let Expr::BigInt(n) = c {prod *= n;}
-                        }
-                        output_stack.push(Expr::BigInt(prod));
-                    } else {
-                        output_stack.push(Expr::MulList(children));
+                    let lhs =
+                        output_stack
+                            .pop()
+                            .unwrap();
+
+                    output_stack.push(
+                        Expr::LogBase(
+                            Arc::new(
+                                lhs,
+                            ),
+                            Arc::new(
+                                rhs,
+                            ),
+                        ),
+                    );
+                },
+                | Expr::AddList(
+                    list,
+                ) => {
+
+                    let len =
+                        list.len();
+
+                    let mut new_list = Vec::with_capacity(len);
+
+                    for _ in 0 .. len {
+
+                        new_list.push(output_stack.pop().unwrap());
                     }
-                },
-                _ => unreachable!("Leaves or unhandled types should be processed before marking visited. Type: {:?}", std::mem::discriminant(&expr)),
-            }
-        } else {
 
-            // Process node
-            match expr {
-                | Expr::Constant(f)
-                    if f.fract()
-                        == 0.0 =>
-                {
+                    new_list.reverse();
 
-                    output_stack.push(Expr::BigInt(num_bigint::BigInt::from(f as i64)));
+                    output_stack.push(
+                        Expr::AddList(
+                            new_list,
+                        ),
+                    );
                 },
-                // Other leaves just pass through
-                | Expr::Constant(_)
-                | Expr::BigInt(_)
-                | Expr::Variable(_)
-                | Expr::Rational(_) => {
+                | Expr::MulList(
+                    list,
+                ) => {
+
+                    let len =
+                        list.len();
+
+                    let mut new_list = Vec::with_capacity(len);
+
+                    for _ in 0 .. len {
+
+                        new_list.push(output_stack.pop().unwrap());
+                    }
+
+                    new_list.reverse();
+
+                    output_stack.push(
+                        Expr::MulList(
+                            new_list,
+                        ),
+                    );
+                },
+                | _ => {
 
                     output_stack
                         .push(expr);
                 },
-                // Recursive cases: push visited parent, children (reverse order for stack)
-                | Expr::Add(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Sub(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Mul(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Div(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Power(
-                    ref a,
-                    ref b,
-                )
+            }
+        } else {
+
+            let processed_leaf = match &expr {
+                Expr::Constant(f) if f.fract() == 0.0 => Some(Expr::BigInt(BigInt::from(*f as i64))),
+                Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())),
+                Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => Some(expr.clone()),
+                _ => None,
+            };
+
+            if let Some(leaf) =
+                processed_leaf
+            {
+
+                output_stack.push(leaf);
+
+                continue;
+            }
+
+            match &expr {
+                | Expr::Add(a, b)
+                | Expr::Sub(a, b)
+                | Expr::Mul(a, b)
+                | Expr::Div(a, b)
+                | Expr::Power(a, b)
                 | Expr::LogBase(
-                    ref a,
-                    ref b,
+                    a,
+                    b,
                 ) => {
 
                     visit_stack.push((
@@ -923,25 +1252,33 @@ fn force_bigint_eval(
                     ));
 
                     visit_stack.push((
-                        b.as_ref()
-                            .clone(),
+                        b.to_ast()
+                            .unwrap_or(
+                            b.as_ref()
+                                .clone(
+                                ),
+                        ),
                         false,
                     ));
 
                     visit_stack.push((
-                        a.as_ref()
-                            .clone(),
+                        a.to_ast()
+                            .unwrap_or(
+                            a.as_ref()
+                                .clone(
+                                ),
+                        ),
                         false,
                     ));
                 },
-                | Expr::Neg(ref a)
-                | Expr::Sin(ref a)
-                | Expr::Cos(ref a)
-                | Expr::Tan(ref a)
-                | Expr::Exp(ref a)
-                | Expr::Log(ref a)
-                | Expr::Abs(ref a)
-                | Expr::Sqrt(ref a) => {
+                | Expr::Neg(a)
+                | Expr::Sin(a)
+                | Expr::Cos(a)
+                | Expr::Tan(a)
+                | Expr::Exp(a)
+                | Expr::Log(a)
+                | Expr::Abs(a)
+                | Expr::Sqrt(a) => {
 
                     visit_stack.push((
                         expr.clone(),
@@ -949,16 +1286,20 @@ fn force_bigint_eval(
                     ));
 
                     visit_stack.push((
-                        a.as_ref()
-                            .clone(),
+                        a.to_ast()
+                            .unwrap_or(
+                            a.as_ref()
+                                .clone(
+                                ),
+                        ),
                         false,
                     ));
                 },
                 | Expr::AddList(
-                    ref list,
+                    list,
                 )
                 | Expr::MulList(
-                    ref list,
+                    list,
                 ) => {
 
                     visit_stack.push((
@@ -971,15 +1312,9 @@ fn force_bigint_eval(
                         .rev()
                     {
 
-                        visit_stack
-                            .push((
-                            item.clone(
-                            ),
-                            false,
-                        ));
+                        visit_stack.push((item.to_ast().unwrap_or(item.clone()), false));
                     }
                 },
-                // Leaves pass through
                 | _ => {
 
                     output_stack
@@ -991,5 +1326,5 @@ fn force_bigint_eval(
 
     output_stack
         .pop()
-        .unwrap_or(root_expr_clone)
+        .unwrap_or(root_expr)
 }

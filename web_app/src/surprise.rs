@@ -25,6 +25,8 @@ pub async fn decrypt_surprise_logic(
     user_key: &str
 ) -> Result<String, String> {
 
+    let user_key = user_key.trim();
+
     use std::path::Path;
 
     use num_bigint::BigInt;
@@ -123,6 +125,32 @@ pub async fn decrypt_surprise_logic(
     let mut full_message_bytes =
         Vec::new();
 
+    // Initialize context with a salt derived from the user_key
+    // Must match build.rs exactly!
+    let mut context =
+        BigInt::from(0x5A5A5A5A_u32);
+
+    if !user_key.is_empty() {
+
+        for b in user_key
+            .as_bytes()
+            .iter()
+            .take(10)
+        {
+
+            context = (&context
+                * BigInt::from(31))
+                + BigInt::from(
+                    *b as u64,
+                );
+        }
+
+        context = context
+            % BigInt::from(
+                0xFFFFFFFF_u64,
+            );
+    }
+
     for (i, encrypted_expr) in
         encrypted_exprs
             .into_iter()
@@ -131,11 +159,37 @@ pub async fn decrypt_surprise_logic(
 
         let mut real_roots = Vec::new();
 
+        let position_factor =
+            BigInt::from(
+                (i + 1) as u64,
+            );
+
+        let mixing_val = (&context
+            * &position_factor)
+            % BigInt::from(
+                0xFFFFFF_u64,
+            );
+
+        if i == 0 {
+
+            log::info!(
+                "Chunk 0: context={}, \
+                 pos_factor={}, \
+                 mixing_val={}, \
+                 target={:?}",
+                context,
+                position_factor,
+                mixing_val,
+                encrypted_expr
+            );
+        }
+
         // Strategy 1: BigInt-aware solver (exact for large integers, handles up to quadratic)
         if let Some(root) =
             try_solve_bigint(
                 &deriv,
                 &encrypted_expr,
+                &mixing_val,
             )
         {
 
@@ -183,9 +237,14 @@ pub async fn decrypt_surprise_logic(
             }
         }
 
-        if let Some(target_num) =
+        if let Some(p_mixed) =
             real_roots.first()
         {
+
+            // Reverse the context mixing to get original plaintext
+            // Must match build.rs: p_mixed = p + ((context * position) % 0xFFFFFF)
+            let target_num =
+                p_mixed - &mixing_val;
 
             let mut bytes = target_num
                 .to_bytes_be()
@@ -197,6 +256,31 @@ pub async fn decrypt_surprise_logic(
                 full_message_bytes
                     .extend(bytes);
             }
+
+            // Update context to match encryption's context update
+            // Must match build.rs exactly!
+            let cipher_val_bigint = match &encrypted_expr {
+                Expr::BigInt(n) => n.clone(),
+                Expr::Constant(f) => {
+                    // Convert float to BigInt (round to nearest integer)
+                    BigInt::from(f.round() as i64)
+                },
+                Expr::Rational(r) => r.to_integer(),
+                _ => {
+                    log::warn!("Unexpected cipher_val type: {:?}, using 0", encrypted_expr);
+                    BigInt::from(0)
+                }
+            };
+
+            context = (&context
+                * BigInt::from(31))
+                + &cipher_val_bigint
+                + &position_factor;
+
+            context = context
+                % BigInt::from(
+                    0xFFFFFFFF_u64,
+                );
         } else {
 
             log::warn!(
@@ -436,183 +520,288 @@ pub fn SurpriseModal(
 
 // Helper for fuzzy comparison of float constants in expressions
 fn is_fuzzy_equal(
-    a: &rssn::symbolic::core::Expr,
-    b: &rssn::symbolic::core::Expr,
+    a: &Expr,
+    b: &Expr,
 ) -> bool {
 
-    use rssn::symbolic::core::Expr; // Import Expr for convenience inside the function
-    match (a, b) {
-        | (
-            Expr::BigInt(va),
-            Expr::BigInt(vb),
-        ) => va == vb,
-        | (
-            Expr::Constant(va),
-            Expr::Constant(vb),
-        ) => (va - vb).abs() < 1e-4,
-        | (
-            Expr::Add(l1, r1),
-            Expr::Add(l2, r2),
-        ) => {
-            is_fuzzy_equal(
-                l1.as_ref(),
-                l2.as_ref(),
-            ) && is_fuzzy_equal(
-                r1.as_ref(),
-                r2.as_ref(),
-            )
-        },
-        | (
-            Expr::Sub(l1, r1),
-            Expr::Sub(l2, r2),
-        ) => {
-            is_fuzzy_equal(
-                l1.as_ref(),
-                l2.as_ref(),
-            ) && is_fuzzy_equal(
-                r1.as_ref(),
-                r2.as_ref(),
-            )
-        },
-        | (
-            Expr::Mul(l1, r1),
-            Expr::Mul(l2, r2),
-        ) => {
-            is_fuzzy_equal(
-                l1.as_ref(),
-                l2.as_ref(),
-            ) && is_fuzzy_equal(
-                r1.as_ref(),
-                r2.as_ref(),
-            )
-        },
-        | (
-            Expr::Div(l1, r1),
-            Expr::Div(l2, r2),
-        ) => {
-            is_fuzzy_equal(
-                l1.as_ref(),
-                l2.as_ref(),
-            ) && is_fuzzy_equal(
-                r1.as_ref(),
-                r2.as_ref(),
-            )
-        },
-        | (
-            Expr::Power(l1, r1),
-            Expr::Power(l2, r2),
-        ) => {
-            is_fuzzy_equal(
-                l1.as_ref(),
-                l2.as_ref(),
-            ) && is_fuzzy_equal(
-                r1.as_ref(),
-                r2.as_ref(),
-            )
-        },
-        | (
-            Expr::Neg(v1),
-            Expr::Neg(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Sin(v1),
-            Expr::Sin(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Cos(v1),
-            Expr::Cos(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Tan(v1),
-            Expr::Tan(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Exp(v1),
-            Expr::Exp(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Log(v1),
-            Expr::Log(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Abs(v1),
-            Expr::Abs(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::Sqrt(v1),
-            Expr::Sqrt(v2),
-        ) => {
-            is_fuzzy_equal(
-                v1.as_ref(),
-                v2.as_ref(),
-            )
-        },
-        | (
-            Expr::AddList(l1),
-            Expr::AddList(l2),
-        ) => {
-            l1.len() == l2.len()
-                && l1
-                    .iter()
-                    .zip(l2.iter())
-                    .all(|(x, y)| {
+    use num_traits::ToPrimitive;
 
-                        is_fuzzy_equal(
-                            x, y,
-                        )
-                    })
-        },
-        | (
-            Expr::MulList(l1),
-            Expr::MulList(l2),
-        ) => {
-            l1.len() == l2.len()
-                && l1
-                    .iter()
-                    .zip(l2.iter())
-                    .all(|(x, y)| {
+    // Collect leaf terms to handle structural differences (Add vs AddList, ordering, etc.)
+    fn collect_terms(
+        e: &Expr,
+        big_acc: &mut BigInt,
+        float_acc: &mut f64,
+        sign: i32,
+    ) -> bool {
 
-                        is_fuzzy_equal(
-                            x, y,
-                        )
-                    })
-        },
-        | _ => a == b, /* Fallback to strict equality for other variants (Variable, Undefined, etc.) */
+        match e {
+            | Expr::Add(l, r) => {
+
+                let a = collect_terms(
+                    l,
+                    big_acc,
+                    float_acc,
+                    sign,
+                );
+
+                let b = collect_terms(
+                    r,
+                    big_acc,
+                    float_acc,
+                    sign,
+                );
+
+                a || b
+            },
+            | Expr::Sub(l, r) => {
+
+                let a = collect_terms(
+                    l,
+                    big_acc,
+                    float_acc,
+                    sign,
+                );
+
+                let b = collect_terms(
+                    r,
+                    big_acc,
+                    float_acc,
+                    -sign,
+                );
+
+                a || b
+            },
+            | Expr::AddList(list) => {
+
+                let mut shifted = false;
+
+                for item in list {
+
+                    if collect_terms(
+                        item,
+                        big_acc,
+                        float_acc,
+                        sign,
+                    ) {
+
+                        shifted = true;
+                    }
+                }
+
+                shifted
+            },
+            | Expr::Neg(inner) => {
+                collect_terms(
+                    inner,
+                    big_acc,
+                    float_acc,
+                    -sign,
+                )
+            },
+            | Expr::BigInt(n) => {
+
+                if sign > 0 {
+
+                    *big_acc += n;
+                } else {
+
+                    *big_acc -= n;
+                }
+
+                true
+            },
+            | Expr::Constant(f) => {
+
+                if sign > 0 {
+
+                    *float_acc += f;
+                } else {
+
+                    *float_acc -= f;
+                }
+
+                true
+            },
+            | Expr::Mul(l, r) => {
+
+                // If it's a Mul, we can't easily flatten, but we can try to eval it
+                // This is needed if force_bigint failed to fold it.
+                if let Some(f) =
+                    try_eval_f(e)
+                {
+
+                    if sign > 0 {
+
+                        *float_acc += f;
+                    } else {
+
+                        *float_acc -= f;
+                    }
+
+                    true
+                } else {
+
+                    false
+                }
+            },
+            | _ => {
+
+                if let Some(f) =
+                    try_eval_f(e)
+                {
+
+                    if sign > 0 {
+
+                        *float_acc += f;
+                    } else {
+
+                        *float_acc -= f;
+                    }
+
+                    true
+                } else {
+
+                    false
+                }
+            },
+        }
+    }
+
+    fn try_eval_f(
+        e: &Expr
+    ) -> Option<f64> {
+
+        match e {
+            | Expr::BigInt(b) => {
+                b.to_f64()
+            },
+            | Expr::Constant(f) => {
+                Some(*f)
+            },
+            | Expr::Mul(l, r) => {
+                try_eval_f(l).and_then(
+                    |la| {
+                        try_eval_f(r)
+                            .map(|lb| {
+                                la * lb
+                            })
+                    },
+                )
+            },
+            | Expr::Power(l, r) => {
+                try_eval_f(l).and_then(
+                    |la| {
+                        try_eval_f(r)
+                            .map(|lb| {
+                                la.powf(
+                                    lb,
+                                )
+                            })
+                    },
+                )
+            },
+            | Expr::Div(l, r) => {
+                try_eval_f(l).and_then(
+                    |la| {
+                        try_eval_f(r)
+                            .map(|lb| {
+                                la / lb
+                            })
+                    },
+                )
+            },
+            | Expr::Sin(a) => {
+                try_eval_f(a)
+                    .map(|v| v.sin())
+            },
+            | Expr::Cos(a) => {
+                try_eval_f(a)
+                    .map(|v| v.cos())
+            },
+            | Expr::Abs(a) => {
+                try_eval_f(a)
+                    .map(|v| v.abs())
+            },
+            | Expr::Sqrt(a) => {
+                try_eval_f(a)
+                    .map(|v| v.sqrt())
+            },
+            | Expr::AddList(list) => {
+
+                let mut sum = 0.0;
+
+                for item in list {
+
+                    sum += try_eval_f(
+                        item,
+                    )?;
+                }
+
+                Some(sum)
+            },
+            | _ => None,
+        }
+    }
+
+    let mut big_a = BigInt::from(0);
+
+    let mut float_a = 0.0;
+
+    let mut big_b = BigInt::from(0);
+
+    let mut float_b = 0.0;
+
+    let has_a = collect_terms(
+        a,
+        &mut big_a,
+        &mut float_a,
+        1,
+    );
+
+    let has_b = collect_terms(
+        b,
+        &mut big_b,
+        &mut float_b,
+        1,
+    );
+
+    if !has_a || !has_b {
+
+        return a == b; // Fallback to strict equality if we couldn't even collect terms
+    }
+
+    // Compare BigInt parts
+    if big_a != big_b {
+
+        // If they differ, check if the difference can be absorbed by the float part
+        let diff = &big_a - &big_b;
+
+        if let Some(d_f) = diff.to_f64()
+        {
+
+            float_a += d_f;
+        } else {
+
+            return false;
+        }
+    }
+
+    // Compare float parts with robust tolerance
+    let diff =
+        (float_a - float_b).abs();
+
+    if float_a.abs() < 1.0
+        && float_b.abs() < 1.0
+    {
+
+        diff < 1e-4
+    } else {
+
+        let max_val = float_a
+            .abs()
+            .max(float_b.abs());
+
+        diff / max_val < 1e-11
     }
 }
 
@@ -621,6 +810,7 @@ fn is_fuzzy_equal(
 fn try_solve_bigint(
     deriv: &Expr,
     target: &Expr,
+    offset: &BigInt,
 ) -> Option<BigInt> {
 
     use num_bigint::BigInt;
@@ -632,36 +822,6 @@ fn try_solve_bigint(
         "try_solve_bigint \
          (brute-force strategy) start"
     );
-
-    // Normalize target for comparison: simplify -> force_bigint
-    // This ensures both the evaluated derivative and the target are in the same canonical form
-    let normalized_target =
-        force_bigint(
-            simplify(target)
-                .to_ast()
-                .unwrap_or(
-                    target.clone(),
-                ),
-        );
-
-    // If target is a BigInt, we extract it for fuzzy comparison.
-    let target_bigint =
-        if let Expr::BigInt(ref b) =
-            normalized_target
-        {
-
-            Some(b.clone())
-        } else {
-
-            log::debug!(
-                "Target is complex: \
-                 {:?}. Using \
-                 structural matching.",
-                normalized_target
-            );
-
-            None
-        };
 
     // Pre-simplify the derivative to speed up substitution in the loop
     let simplified_deriv =
@@ -678,7 +838,8 @@ fn try_solve_bigint(
         .find_map_any(|val| {
 
             let x_guess =
-                BigInt::from(256 + val); // range [256, 511]
+                BigInt::from(256 + val)
+                    + offset; // range [256+offset, 511+offset]
 
             let eval_expr = substitute(
                 &simplified_deriv,
@@ -691,29 +852,9 @@ fn try_solve_bigint(
             let eval_res =
                 force_bigint(eval_expr);
 
-            if let (
-                Expr::BigInt(res_val),
-                Some(target_val),
-            ) = (
-                &eval_res,
-                &target_bigint,
-            ) {
-
-                if (res_val
-                    - target_val)
-                    .abs()
-                    <= BigInt::from(1)
-                {
-
-                    return Some(
-                        x_guess,
-                    );
-                }
-            }
-
             if is_fuzzy_equal(
                 &eval_res,
-                &normalized_target,
+                target,
             ) {
 
                 return Some(x_guess);
@@ -739,7 +880,7 @@ fn try_solve_bigint(
 
             let x_guess = BigInt::from(
                 65536 + val,
-            );
+            ) + offset;
 
             let eval_expr = substitute(
                 &simplified_deriv,
@@ -752,29 +893,9 @@ fn try_solve_bigint(
             let eval_res =
                 force_bigint(eval_expr);
 
-            if let (
-                Expr::BigInt(res_val),
-                Some(target_val),
-            ) = (
-                &eval_res,
-                &target_bigint,
-            ) {
-
-                if (res_val
-                    - target_val)
-                    .abs()
-                    <= BigInt::from(1)
-                {
-
-                    return Some(
-                        x_guess,
-                    );
-                }
-            }
-
             if is_fuzzy_equal(
                 &eval_res,
-                &normalized_target,
+                target,
             ) {
 
                 return Some(x_guess);
@@ -854,8 +975,21 @@ fn force_bigint(
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            // If BigInt is very large, keep separate to preserve precision
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Add(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Add(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
                         (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -865,8 +999,20 @@ fn force_bigint(
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Sub(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Sub(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
                         (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -876,8 +1022,20 @@ fn force_bigint(
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0))),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            if la.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Mul(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb));
+                            }
+                        },
+                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
+                                output_stack.push(Expr::Mul(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                            } else {
+                                output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0)));
+                            }
+                        },
                         (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
                     }
                 },
