@@ -622,7 +622,7 @@ fn is_fuzzy_equal(
 
                 true
             },
-            | Expr::Mul(l, r) => {
+            | Expr::Mul(_l, _r) => {
 
                 // If it's a Mul, we can't easily flatten, but we can try to eval it
                 // This is needed if force_bigint failed to fold it.
