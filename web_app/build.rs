@@ -1,9 +1,22 @@
+// Copyright 2025 Xinyu Yang
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use std::path::Path;
 use std::sync::Arc;
 
 use num_bigint::BigInt;
 use num_bigint::Sign;
-use num_traits::ToPrimitive;
 use rssn::symbolic::calculus::differentiate;
 use rssn::symbolic::calculus::substitute;
 use rssn::symbolic::core::Expr;
@@ -351,8 +364,26 @@ fn force_bigint(
 ) -> Expr {
 
     // Stack-based iterative approach to avoid recursion overflow
+    use num_traits::Signed;
+    use num_traits::ToPrimitive;
+
     let root_expr_clone =
         root_expr.clone();
+
+    // Helper to extract float value for approximate evaluation
+    let try_eval_float =
+        |e: &Expr| -> Option<f64> {
+
+            match e {
+                | Expr::Constant(f) => {
+                    Some(*f)
+                },
+                | Expr::BigInt(b) => {
+                    b.to_f64()
+                },
+                | _ => None,
+            }
+        };
 
     let mut visit_stack =
         vec![(root_expr, false)];
@@ -402,13 +433,86 @@ fn force_bigint(
                     let inner = output_stack.pop().unwrap();
                     output_stack.push(Expr::Neg(Arc::new(inner)));
                 },
-                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
-                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
-                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
-                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
-                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
-                Expr::Abs(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Abs(Arc::new(v))); },
-                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::Sin(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sin()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Sin(Arc::new(v)));
+                    }
+                },
+                Expr::Cos(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.cos()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Cos(Arc::new(v)));
+                    }
+                },
+                Expr::Tan(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.tan()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Tan(Arc::new(v)));
+                    }
+                },
+                Expr::Exp(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.exp()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Exp(Arc::new(v)));
+                    }
+                },
+                Expr::Log(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.ln()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Log(Arc::new(v)));
+                    }
+                },
+                Expr::Abs(_) => {
+                    let v = output_stack.pop().unwrap();
+                    match v {
+                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                        Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
+                        _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                    }
+                },
+                Expr::Sqrt(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sqrt()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Sqrt(Arc::new(v)));
+                    }
+                },
                 Expr::AddList(list) => {
                     let mut new_list = Vec::with_capacity(list.len());
                     for _ in 0..list.len() {
@@ -556,11 +660,27 @@ fn force_bigint_eval(
 ) -> Expr {
 
     use num_traits::Signed;
+    use num_traits::ToPrimitive;
     use num_traits::Zero;
 
     // Stack-based iterative approach
     let root_expr_clone =
         root_expr.clone();
+
+    // Helper to extract float value for approximate evaluation
+    let try_eval_float =
+        |e: &Expr| -> Option<f64> {
+
+            match e {
+                | Expr::Constant(f) => {
+                    Some(*f)
+                },
+                | Expr::BigInt(b) => {
+                    b.to_f64()
+                },
+                | _ => None,
+            }
+        };
 
     let mut visit_stack =
         vec![(root_expr, false)];
@@ -581,6 +701,9 @@ fn force_bigint_eval(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va + vb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0))),
                         (la, ra) => output_stack.push(Expr::Add(Arc::new(la), Arc::new(ra))),
                     }
                 },
@@ -589,6 +712,9 @@ fn force_bigint_eval(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va - vb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0))),
                         (la, ra) => output_stack.push(Expr::Sub(Arc::new(la), Arc::new(ra))),
                     }
                 },
@@ -597,6 +723,9 @@ fn force_bigint_eval(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(va), Expr::BigInt(vb)) => output_stack.push(Expr::BigInt(va * vb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0))),
                         (la, ra) => output_stack.push(Expr::Mul(Arc::new(la), Arc::new(ra))),
                     }
                 },
@@ -606,6 +735,9 @@ fn force_bigint_eval(
                      match (lhs, rhs) {
                          (Expr::BigInt(va), Expr::BigInt(vb)) if !vb.is_zero() && &va % &vb == BigInt::from(0) =>
                              output_stack.push(Expr::BigInt(va / vb)),
+                         (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
+                         (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
+                         (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))),
                          (la, ra) => output_stack.push(Expr::Div(Arc::new(la), Arc::new(ra))),
                      }
                 },
@@ -622,6 +754,9 @@ fn force_bigint_eval(
                                 output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
                             }
                         }
+                        (Expr::Constant(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.powf(e))),
+                        (Expr::BigInt(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e))),
+                        (Expr::Constant(b), Expr::BigInt(e)) => output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0)))),
                         (la, ra) => output_stack.push(Expr::Power(Arc::new(la), Arc::new(ra))),
                     }
                 },
@@ -632,19 +767,65 @@ fn force_bigint_eval(
                         other => output_stack.push(Expr::Neg(Arc::new(other))),
                     }
                 },
-                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
-                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
-                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
-                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
-                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
-                Expr::Abs(_) => {
-                     let inner = output_stack.pop().unwrap();
-                     match inner {
-                         Expr::BigInt(v) => output_stack.push(Expr::BigInt(v.abs())),
-                         other => output_stack.push(Expr::Abs(Arc::new(other))),
-                     }
+                Expr::Sin(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.sin()));
+                    } else {
+                        output_stack.push(Expr::Sin(Arc::new(v)));
+                    }
                 },
-                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::Cos(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.cos()));
+                    } else {
+                        output_stack.push(Expr::Cos(Arc::new(v)));
+                    }
+                },
+                Expr::Tan(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.tan()));
+                    } else {
+                        output_stack.push(Expr::Tan(Arc::new(v)));
+                    }
+                },
+                Expr::Exp(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.exp()));
+                    } else {
+                        output_stack.push(Expr::Exp(Arc::new(v)));
+                    }
+                },
+                Expr::Log(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.ln()));
+                    } else {
+                        output_stack.push(Expr::Log(Arc::new(v)));
+                    }
+                },
+                Expr::Abs(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.abs()));
+                    } else {
+                        match v {
+                            Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                            _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                        }
+                    }
+                },
+                Expr::Sqrt(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v) {
+                        output_stack.push(Expr::Constant(f.sqrt()));
+                    } else {
+                        output_stack.push(Expr::Sqrt(Arc::new(v)));
+                    }
+                },
                 Expr::LogBase(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
@@ -662,7 +843,7 @@ fn force_bigint_eval(
                     if all_bigint {
                         let mut sum = BigInt::from(0);
                         for c in children {
-                            if let Expr::BigInt(n) = c { sum += n; }
+                            if let Expr::BigInt(n) = c {sum += n;}
                         }
                         output_stack.push(Expr::BigInt(sum));
                     } else {
@@ -681,7 +862,7 @@ fn force_bigint_eval(
                     if all_bigint {
                         let mut prod = BigInt::from(1);
                         for c in children {
-                            if let Expr::BigInt(n) = c { prod *= n; }
+                            if let Expr::BigInt(n) = c {prod *= n;}
                         }
                         output_stack.push(Expr::BigInt(prod));
                     } else {

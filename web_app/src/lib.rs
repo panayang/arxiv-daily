@@ -1,3 +1,17 @@
+// Copyright 2025 Xinyu Yang
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 //! This is the library for the arxiv-daily project.
 
 #![allow(
@@ -2050,6 +2064,9 @@ fn Dashboard() -> impl IntoView {
         ),
     );
 
+    let (view_mode, set_view_mode) =
+        signal("card".to_string());
+
     #[derive(
         Clone, Default, PartialEq,
     )]
@@ -2545,33 +2562,69 @@ fn Dashboard() -> impl IntoView {
             <header class="flex flex-col md:flex-row md:items-end justify-between gap-6 border-b border-white/5 pb-10 animate-fade-in">
                 <div class="space-y-2 animate-slide-up">
                     <div class="flex items-center gap-3">
-                        <img src="/logo.svg" alt="arXiv Daily Logo" class="h-10 w-10 rounded-xl shadow-2xl shadow-obsidian-accent/10" />
+                        <img src="/logo.svg" alt="arXiv Daily Logo" class="h-10 w-10 rounded-xl shadow-2xl shadow-[0_0_15px_rgba(59,130,246,0.5)]" />
                         <h1 class="text-5xl font-black text-obsidian-heading tracking-tighter">
                             "arXiv" <span class="text-obsidian-accent gradient-text text-glow">"Daily"</span>
                         </h1>
                     </div>
                     <p class="text-obsidian-text/40 font-medium ml-1 tracking-wide uppercase text-xs">"Personalized research discovery platform"</p>
                 </div>
-                <div class="relative w-full md:w-96 group animate-slide-up stagger-1">
-                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                        <svg class="h-5 w-5 text-obsidian-text/20 group-focus-within:text-obsidian-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                    </div>
-                    <input
-                        type="text"
-                        placeholder="Search research papers..."
-                        class="w-full bg-obsidian-sidebar/50 backdrop-blur-xl border border-white/5 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-obsidian-accent/30 focus:border-obsidian-accent/30 transition-all text-obsidian-heading placeholder:text-obsidian-text/20 shadow-2xl"
-                        on:input=move |ev| {
-                            set_input_val.set(event_target_value(&ev));
-                        }
-                        on:keydown=move |ev| {
-                            if ev.key() == "Enter" {
-                                on_search(());
+                <div class="flex items-center gap-3">
+                    <div class="relative w-full md:w-96 group animate-slide-up stagger-1">
+                        <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                            <svg class="h-5 w-5 text-obsidian-text/20 group-focus-within:text-obsidian-accent transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                        </div>
+                        <input
+                            type="text"
+                            placeholder="Search research papers..."
+                            class="w-full bg-obsidian-sidebar/50 backdrop-blur-xl border border-white/5 rounded-2xl pl-12 pr-4 py-3.5 focus:outline-none focus:ring-2 focus:ring-obsidian-accent/30 focus:border-obsidian-accent/30 transition-all text-obsidian-heading placeholder:text-obsidian-text/20 shadow-2xl"
+                            on:input=move |ev| {
+                                set_input_val.set(event_target_value(&ev));
                             }
-                        }
-                        prop:value=input_val
-                    />
+                            on:keydown=move |ev| {
+                                if ev.key() == "Enter" {
+                                    on_search(());
+                                }
+                            }
+                            prop:value=input_val
+                        />
+                    </div>
+                    <div class="flex gap-2 animate-slide-up stagger-1">
+                        <button
+                            on:click=move |_| set_view_mode.set("card".to_string())
+                            class=move || format!(
+                                "p-3 rounded-xl transition-all border {}",
+                                if view_mode.get() == "card" {
+                                    "bg-obsidian-accent/20 border-obsidian-accent/30 text-obsidian-accent"
+                                } else {
+                                    "bg-obsidian-sidebar/50 border-white/5 text-obsidian-text/40 hover:text-obsidian-text hover:border-white/10"
+                                }
+                            )
+                            title="Card View"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                            </svg>
+                        </button>
+                        <button
+                            on:click=move |_| set_view_mode.set("list".to_string())
+                            class=move || format!(
+                                "p-3 rounded-xl transition-all border {}",
+                                if view_mode.get() == "list" {
+                                    "bg-obsidian-accent/20 border-obsidian-accent/30 text-obsidian-accent"
+                                } else {
+                                    "bg-obsidian-sidebar/50 border-white/5 text-obsidian-text/40 hover:text-obsidian-text hover:border-white/10"
+                                }
+                            )
+                            title="List View"
+                        >
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -2642,6 +2695,7 @@ fn Dashboard() -> impl IntoView {
                 set_use_llm
                 page_size=page_size.into()
                 set_page_size
+                view_mode=view_mode.into()
             />
 
             <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
@@ -2669,9 +2723,27 @@ fn Dashboard() -> impl IntoView {
                                         </div>
                                     }.into_any()
                                 } else {
+                                    let value = current_papers.clone();
                                     view! {
                                         <div class="col-span-full space-y-12">
-                                            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
+                                            <div class=move || if view_mode.get() == "card" { "block" } else { "hidden" }>
+                                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-8">
+                                                    <For
+                                                        each=move || value.clone()
+                                                        key=|paper| paper.id.clone()
+                                                        children=move |paper| {
+                                                            let paper_id = paper.id.clone();
+                                                            let is_hidden = move || hidden_paper_ids.get().contains(&paper_id);
+                                                            view! {
+                                                                <Show when=move || !is_hidden()>
+                                                                    <PaperCard paper=paper.clone()/>
+                                                                </Show>
+                                                            }
+                                                        }
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div class=move || if view_mode.get() == "list" { "block space-y-4" } else { "hidden" }>
                                                 <For
                                                     each=move || current_papers.clone()
                                                     key=|paper| paper.id.clone()
@@ -2680,7 +2752,7 @@ fn Dashboard() -> impl IntoView {
                                                         let is_hidden = move || hidden_paper_ids.get().contains(&paper_id);
                                                         view! {
                                                             <Show when=move || !is_hidden()>
-                                                                <PaperCard paper=paper.clone()/>
+                                                                <PaperListItem paper=paper.clone()/>
                                                             </Show>
                                                         }
                                                     }
@@ -3079,6 +3151,7 @@ fn FilterBar(
     set_use_llm: WriteSignal<bool>,
     page_size: Signal<usize>,
     set_page_size: WriteSignal<usize>,
+    view_mode: Signal<String>,
 ) -> impl IntoView {
 
     let (
@@ -3243,23 +3316,67 @@ fn FilterBar(
                 />
             </div>
 
-            <div class="flex flex-col gap-2 min-w-[120px]">
-                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/20 ml-2">"Volume"</label>
-                <select
-                    class="bg-black/20 border border-white/5 rounded-2xl px-4 py-3 text-xs text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-obsidian-accent/30 appearance-none cursor-pointer hover:border-white/10 transition-all font-bold tracking-tight text-center"
-                    on:change=move |ev| {
-                        if let Ok(n) = event_target_value(&ev).parse::<usize>() {
-                            set_page_size.set(n);
+            <div class="flex flex-col gap-2 min-w-[200px]">
+                <label class="text-[10px] font-black uppercase tracking-[0.2em] text-obsidian-text/20 ml-2">"Results Per Page"</label>
+                <div class="flex gap-2">
+                    <input
+                        type="number"
+                        min="1"
+                        class="flex-1 bg-black/20 border border-white/5 rounded-2xl px-4 py-3 text-xs text-obsidian-heading focus:outline-none focus:ring-2 focus:ring-obsidian-accent/30 transition-all font-bold tracking-tight text-center"
+                        on:input=move |ev| {
+                            if let Ok(n) = event_target_value(&ev).parse::<usize>() {
+                                if n > 0 {
+                                    set_page_size.set(n);
+                                }
+                            }
                         }
-                    }
-                    prop:value=move || page_size.get().to_string()
-                >
-                    <option value="12" class="bg-obsidian-sidebar">"12 Results"</option>
-                    <option value="24" class="bg-obsidian-sidebar">"24 Results"</option>
-                    <option value="51" class="bg-obsidian-sidebar">"51 Results"</option>
-                    <option value="100" class="bg-obsidian-sidebar">"100 Results"</option>
-                    <option value="200" class="bg-obsidian-sidebar">"200 Results"</option>
-                </select>
+                        on:blur=move |_| {
+                            // Validate and adjust based on view mode when user finishes typing
+                            let current = page_size.get();
+                            if view_mode.get() == "card" && current % 3 != 0 {
+                                // Round to nearest multiple of 3
+                                let adjusted = ((current + 1) / 3) * 3;
+                                if adjusted > 0 {
+                                    set_page_size.set(adjusted);
+                                }
+                            }
+                        }
+                        prop:value=move || page_size.get().to_string()
+                    />
+                    <div class="relative group/presets">
+                        <button
+                            class="p-3 bg-black/20 border border-white/5 rounded-2xl hover:border-obsidian-accent/30 transition-all"
+                            title="Presets"
+                        >
+                            <svg class="w-4 h-4 text-obsidian-text/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 6h16M4 12h16M4 18h16" />
+                            </svg>
+                        </button>
+                        <div class="hidden group-hover/presets:block absolute right-0 mt-2 bg-obsidian-card border border-white/10 rounded-2xl shadow-2xl p-2 z-[100] min-w-[140px]">
+                            <div class="text-[9px] font-black text-obsidian-text/30 uppercase tracking-wider px-3 py-2">"Quick Select"</div>
+                            {move || {
+                                let presets = if view_mode.get() == "card" {
+                                    vec![12, 24, 51, 99, 201]
+                                } else {
+                                    vec![10, 25, 50, 100, 200]
+                                };
+                                presets.into_iter().map(|size| {
+                                    view! {
+                                        <button
+                                            on:click=move |_| set_page_size.set(size)
+                                            class="w-full text-left px-3 py-2 text-xs text-obsidian-text/70 hover:bg-obsidian-accent/10 hover:text-obsidian-accent rounded-lg transition-colors font-semibold"
+                                        >
+                                            {format!("{} results", size)}
+                                        </button>
+                                    }
+                                }).collect_view()
+                            }}
+                        </div>
+                    </div>
+                </div>
+                <Show when=move || { view_mode.get() == "card" && page_size.get() % 3 != 0 }>
+                    <p class="text-[9px] text-amber-400/80 ml-2 font-semibold">"⚠ Grid view requires multiples of 3"</p>
+                </Show>
             </div>
             <div class="flex flex-col gap-2 min-w-[340px] flex-[3]">
                 <div class="flex items-center justify-between ml-2">
@@ -3294,7 +3411,7 @@ fn FilterBar(
 
             <div class="hidden lg:block w-[1px] h-10 bg-white/5 mx-2"></div>
 
-            <div class="flex items-center gap-3 w-full lg:w-auto self-end">
+            <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto self-end justify-center lg:justify-end">
                 <button
                     on:click=move |_| on_search.run(())
                     class="flex-1 lg:flex-none h-[46px] px-8 bg-gradient-to-br from-obsidian-accent to-obsidian-accent/80 text-white text-[11px] font-black uppercase tracking-[0.2em] rounded-2xl hover:brightness-110 transition-all shadow-[0_10px_20px_-10px_rgba(59,130,246,0.6)] active:scale-95 flex items-center justify-center gap-2.5"
@@ -3515,7 +3632,7 @@ pub fn AboutModal(
                         <div class="flex flex-col items-center text-center space-y-4">
                             <div class="relative group/logo">
                                 <div class="absolute -inset-4 bg-gradient-to-r from-obsidian-accent/20 to-purple-500/20 rounded-full blur-2xl opacity-50"></div>
-                                <img src="/logo.svg" alt="Logo" class="relative w-24 h-24 rounded-3xl shadow-2xl bg-black/40 p-1" />
+                                <img src="/logo.svg" alt="Logo" class="relative w-24 h-24 rounded-3xl shadow-2xl shadow-[0_0_30px_rgba(59,130,246,0.5)] bg-black/40 p-1" />
                             </div>
                             <div>
                                 <h3 class="text-3xl font-black text-white italic tracking-tighter">"arXiv" <span class="text-obsidian-accent gradient-text text-glow">"Daily"</span></h3>
@@ -3660,6 +3777,116 @@ pub fn AboutModal(
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[component]
+
+fn PaperListItem(
+    paper: Paper
+) -> impl IntoView {
+
+    let (expanded, set_expanded) =
+        signal(false);
+
+    let authors = paper.authors_list();
+
+    let display_authors =
+        authors.join(", ");
+
+    let title = paper.title.clone();
+
+    let url = paper.url.clone();
+
+    let summary = paper
+        .summary
+        .clone();
+
+    let pdf_link = paper
+        .pdf_link
+        .clone();
+
+    let published_str = paper
+        .published_date()
+        .format("%b %d, %Y")
+        .to_string();
+
+    let category_name =
+        paper.primary_category_name();
+
+    view! {
+        <div class="glass glow-hover rounded-2xl p-6 flex items-start gap-6 hover:scale-[1.01] active:scale-[0.99] transition-all duration-300 group relative overflow-hidden">
+            <div class="absolute -left-12 top-0 bottom-0 w-24 bg-obsidian-accent/5 blur-[60px] group-hover:bg-obsidian-accent/10 transition-colors"></div>
+
+            <div class="flex-1 space-y-4 relative z-10">
+                <div class="flex items-start justify-between gap-4">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-full text-[9px] font-black bg-obsidian-accent/5 text-obsidian-accent border border-obsidian-accent/10 uppercase tracking-[0.1em]">
+                                {category_name}
+                            </span>
+                            <span class="text-[9px] uppercase tracking-[0.15em] text-obsidian-text/30 font-bold">
+                                {published_str}
+                            </span>
+                        </div>
+                        <h3 class="text-lg font-bold text-obsidian-heading leading-[1.3] group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-obsidian-accent group-hover:to-obsidian-accent-light transition-all duration-500 mb-2">
+                            <a
+                                href=url.clone()
+                                target="_blank"
+                                class="hover:underline decoration-obsidian-accent/20 decoration-2 underline-offset-4 transition-all"
+                                inner_html=move || render_math(&title)
+                            ></a>
+                        </h3>
+                        <p class="text-[10px] text-obsidian-text/30 font-semibold mb-3 line-clamp-1 italic tracking-wide">
+                            {display_authors}
+                        </p>
+                        <div class="space-y-2">
+                            <p class=move || if expanded.get() {
+                                "text-sm text-obsidian-text/60 leading-relaxed font-medium"
+                            } else {
+                                "text-sm text-obsidian-text/60 leading-relaxed line-clamp-2 font-medium"
+                            }>
+                                {summary.clone()}
+                            </p>
+                            <Show when=move || { summary.len() > 200 }>
+                                <button
+                                    on:click=move |_| set_expanded.update(|e| *e = !*e)
+                                    class="text-xs text-obsidian-accent hover:text-obsidian-accent-light font-semibold transition-colors flex items-center gap-1"
+                                >
+                                    {move || if expanded.get() { "Show less" } else { "Show more" }}
+                                    <svg class=move || format!("w-3 h-3 transition-transform {}", if expanded.get() { "rotate-180" } else { "" }) fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+                                    </svg>
+                                </button>
+                            </Show>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2 shrink-0">
+                        <a
+                            href=url
+                            target="_blank"
+                            class="p-2.5 bg-obsidian-accent/10 hover:bg-obsidian-accent/20 text-obsidian-accent rounded-xl transition-all hover:scale-110 active:scale-95 border border-obsidian-accent/20"
+                            title="View on arXiv"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                        <a
+                            href=pdf_link
+                            target="_blank"
+                            class="p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-xl transition-all hover:scale-110 active:scale-95 border border-red-500/20"
+                            title="Download PDF"
+                        >
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
     }
 }
 

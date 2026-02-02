@@ -24,7 +24,7 @@ def build_and_gather():
     
     try:
         subprocess.run(
-            ["cargo", "leptos", "build", "--release"], 
+            ["cargo", "+nightly", "leptos", "build", "--release"], 
             cwd=project_dir, 
             env=env,
             check=True

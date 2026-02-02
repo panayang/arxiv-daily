@@ -1,3 +1,17 @@
+// Copyright 2025 Xinyu Yang
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 #![allow(unused_imports)]
 
 use leptos::prelude::*;
@@ -377,7 +391,7 @@ pub fn SurpriseModal(
                                 }
                             />
                             <button
-                                on:click=move |_| { let _ = decrypt_action.dispatch(key_input.get()); }
+                                on:click=move |_| {let _ = decrypt_action.dispatch(key_input.get());}
                                 class="w-full bg-gradient-to-br from-obsidian-accent to-obsidian-accent/80 hover:brightness-110 text-white font-black uppercase tracking-[0.2em] text-[11px] py-4 rounded-2xl transition-all shadow-[0_10px_30px_-10px_rgba(59,130,246,0.6)] disabled:opacity-30 active:scale-95 group"
                                 disabled=pending
                             >
@@ -415,6 +429,190 @@ pub fn SurpriseModal(
                 </div>
             </div>
         </Show>
+    }
+}
+
+#[cfg(feature = "ssr")]
+
+// Helper for fuzzy comparison of float constants in expressions
+fn is_fuzzy_equal(
+    a: &rssn::symbolic::core::Expr,
+    b: &rssn::symbolic::core::Expr,
+) -> bool {
+
+    use rssn::symbolic::core::Expr; // Import Expr for convenience inside the function
+    match (a, b) {
+        | (
+            Expr::BigInt(va),
+            Expr::BigInt(vb),
+        ) => va == vb,
+        | (
+            Expr::Constant(va),
+            Expr::Constant(vb),
+        ) => (va - vb).abs() < 1e-4,
+        | (
+            Expr::Add(l1, r1),
+            Expr::Add(l2, r2),
+        ) => {
+            is_fuzzy_equal(
+                l1.as_ref(),
+                l2.as_ref(),
+            ) && is_fuzzy_equal(
+                r1.as_ref(),
+                r2.as_ref(),
+            )
+        },
+        | (
+            Expr::Sub(l1, r1),
+            Expr::Sub(l2, r2),
+        ) => {
+            is_fuzzy_equal(
+                l1.as_ref(),
+                l2.as_ref(),
+            ) && is_fuzzy_equal(
+                r1.as_ref(),
+                r2.as_ref(),
+            )
+        },
+        | (
+            Expr::Mul(l1, r1),
+            Expr::Mul(l2, r2),
+        ) => {
+            is_fuzzy_equal(
+                l1.as_ref(),
+                l2.as_ref(),
+            ) && is_fuzzy_equal(
+                r1.as_ref(),
+                r2.as_ref(),
+            )
+        },
+        | (
+            Expr::Div(l1, r1),
+            Expr::Div(l2, r2),
+        ) => {
+            is_fuzzy_equal(
+                l1.as_ref(),
+                l2.as_ref(),
+            ) && is_fuzzy_equal(
+                r1.as_ref(),
+                r2.as_ref(),
+            )
+        },
+        | (
+            Expr::Power(l1, r1),
+            Expr::Power(l2, r2),
+        ) => {
+            is_fuzzy_equal(
+                l1.as_ref(),
+                l2.as_ref(),
+            ) && is_fuzzy_equal(
+                r1.as_ref(),
+                r2.as_ref(),
+            )
+        },
+        | (
+            Expr::Neg(v1),
+            Expr::Neg(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Sin(v1),
+            Expr::Sin(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Cos(v1),
+            Expr::Cos(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Tan(v1),
+            Expr::Tan(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Exp(v1),
+            Expr::Exp(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Log(v1),
+            Expr::Log(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Abs(v1),
+            Expr::Abs(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::Sqrt(v1),
+            Expr::Sqrt(v2),
+        ) => {
+            is_fuzzy_equal(
+                v1.as_ref(),
+                v2.as_ref(),
+            )
+        },
+        | (
+            Expr::AddList(l1),
+            Expr::AddList(l2),
+        ) => {
+            l1.len() == l2.len()
+                && l1
+                    .iter()
+                    .zip(l2.iter())
+                    .all(|(x, y)| {
+
+                        is_fuzzy_equal(
+                            x, y,
+                        )
+                    })
+        },
+        | (
+            Expr::MulList(l1),
+            Expr::MulList(l2),
+        ) => {
+            l1.len() == l2.len()
+                && l1
+                    .iter()
+                    .zip(l2.iter())
+                    .all(|(x, y)| {
+
+                        is_fuzzy_equal(
+                            x, y,
+                        )
+                    })
+        },
+        | _ => a == b, /* Fallback to strict equality for other variants (Variable, Undefined, etc.) */
     }
 }
 
@@ -513,9 +711,10 @@ fn try_solve_bigint(
                 }
             }
 
-            if &eval_res
-                == &normalized_target
-            {
+            if is_fuzzy_equal(
+                &eval_res,
+                &normalized_target,
+            ) {
 
                 return Some(x_guess);
             }
@@ -573,9 +772,10 @@ fn try_solve_bigint(
                 }
             }
 
-            if &eval_res
-                == &normalized_target
-            {
+            if is_fuzzy_equal(
+                &eval_res,
+                &normalized_target,
+            ) {
 
                 return Some(x_guess);
             }
@@ -605,13 +805,30 @@ fn force_bigint(
 
     use std::sync::Arc;
 
+    use num_traits::Signed;
     use num_traits::ToPrimitive;
+    use num_traits::Zero;
     use rssn::symbolic::core::Expr;
 
     // We start by unwrapping the AST if needed
     let root = root_expr
         .to_ast()
         .unwrap_or(root_expr.clone());
+
+    // Helper to extract float value for approximate evaluation
+    let try_eval_float =
+        |e: &Expr| -> Option<f64> {
+
+            match e {
+                | Expr::Constant(f) => {
+                    Some(*f)
+                },
+                | Expr::BigInt(b) => {
+                    b.to_f64()
+                },
+                | _ => None,
+            }
+        };
 
     // Stack for post-order traversal simulation
     // (Node, visited_children)
@@ -636,6 +853,9 @@ fn force_bigint(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0))),
                         (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -644,6 +864,9 @@ fn force_bigint(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0))),
                         (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -652,6 +875,9 @@ fn force_bigint(
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
                         (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0))),
                         (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -659,7 +885,10 @@ fn force_bigint(
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) if &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
+                        (Expr::BigInt(la), Expr::BigInt(lb)) if !lb.is_zero() && &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
+                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
+                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
+                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))), // Handle div by zero? Rust f64 handles inf.
                         (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -673,9 +902,15 @@ fn force_bigint(
                             } else if exp == BigInt::from(0) {
                                 output_stack.push(Expr::BigInt(BigInt::from(1)));
                             } else {
+                                // Fallback to float if exponential is too large?
+                                // Or symbolic.
+                                // Let's keep existing logic for pure BigInt, but add float fallback
                                 output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
                             }
                         }
+                        (Expr::Constant(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.powf(e))),
+                        (Expr::BigInt(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e))),
+                        (Expr::Constant(b), Expr::BigInt(e)) => output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0)))),
                         (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
                     }
                 },
@@ -691,13 +926,86 @@ fn force_bigint(
                         other => output_stack.push(Expr::Neg(Arc::new(other))),
                     }
                 },
-                Expr::Sin(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sin(Arc::new(v))); },
-                Expr::Cos(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Cos(Arc::new(v))); },
-                Expr::Tan(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Tan(Arc::new(v))); },
-                Expr::Exp(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Exp(Arc::new(v))); },
-                Expr::Log(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Log(Arc::new(v))); },
-                Expr::Abs(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Abs(Arc::new(v))); },
-                Expr::Sqrt(_) => { let v = output_stack.pop().unwrap(); output_stack.push(Expr::Sqrt(Arc::new(v))); },
+                Expr::Sin(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sin()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Sin(Arc::new(v)));
+                    }
+                },
+                Expr::Cos(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.cos()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Cos(Arc::new(v)));
+                    }
+                },
+                Expr::Tan(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.tan()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Tan(Arc::new(v)));
+                    }
+                },
+                Expr::Exp(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.exp()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Exp(Arc::new(v)));
+                    }
+                },
+                Expr::Log(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.ln()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Log(Arc::new(v)));
+                    }
+                },
+                Expr::Abs(_) => {
+                    let v = output_stack.pop().unwrap();
+                    match v {
+                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                        Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
+                        _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                    }
+                },
+                Expr::Sqrt(_) => {
+                    let v = output_stack.pop().unwrap();
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sqrt()) {
+                        if (f - f.round()).abs() < 1e-6 {
+                            output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
+                        } else {
+                            output_stack.push(Expr::Constant(f));
+                        }
+                    } else {
+                        output_stack.push(Expr::Sqrt(Arc::new(v)));
+                    }
+                },
                 Expr::AddList(list) => {
                     let len = list.len();
                     // Items are stuck on output stack in reverse order of processing?
