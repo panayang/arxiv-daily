@@ -681,8 +681,10 @@ fn is_fuzzy_equal(
             | Expr::Mul(l, r) => {
                 try_eval_f(l).and_then(
                     |la| {
+
                         try_eval_f(r)
                             .map(|lb| {
+
                                 la * lb
                             })
                     },
@@ -691,8 +693,10 @@ fn is_fuzzy_equal(
             | Expr::Power(l, r) => {
                 try_eval_f(l).and_then(
                     |la| {
+
                         try_eval_f(r)
                             .map(|lb| {
+
                                 la.powf(
                                     lb,
                                 )
@@ -703,8 +707,10 @@ fn is_fuzzy_equal(
             | Expr::Div(l, r) => {
                 try_eval_f(l).and_then(
                     |la| {
+
                         try_eval_f(r)
                             .map(|lb| {
+
                                 la / lb
                             })
                     },

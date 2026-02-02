@@ -941,6 +941,7 @@ fn force_bigint_eval(
                             &v,
                         )
                         .map(|x| {
+
                             x.sin()
                         })
                     {
@@ -973,6 +974,7 @@ fn force_bigint_eval(
                             &v,
                         )
                         .map(|x| {
+
                             x.cos()
                         })
                     {
@@ -1005,6 +1007,7 @@ fn force_bigint_eval(
                             &v,
                         )
                         .map(|x| {
+
                             x.tan()
                         })
                     {
@@ -1037,6 +1040,7 @@ fn force_bigint_eval(
                             &v,
                         )
                         .map(|x| {
+
                             x.exp()
                         })
                     {
@@ -1121,6 +1125,7 @@ fn force_bigint_eval(
                             &v,
                         )
                         .map(|x| {
+
                             x.sqrt()
                         })
                     {
