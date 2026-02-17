@@ -445,6 +445,110 @@ fn main() -> Result<
     // HTTP/3 & Crypto: Generate key and self-signed cert
     generate_tls_assets()?;
 
+    // Admin password hashing logic
+    let admin_toml_path =
+        if Path::new("admin.toml")
+            .exists()
+        {
+
+            "admin.toml"
+        } else {
+
+            "../admin.toml"
+        };
+
+    if Path::new(admin_toml_path)
+        .exists()
+    {
+
+        use argon2::{
+            password_hash::{
+                PasswordHasher, SaltString, rand_core::OsRng,
+            },
+            Argon2,
+        };
+
+        println!(
+            "cargo:rerun-if-changed={}",
+            admin_toml_path
+        );
+
+        let content =
+            std::fs::read_to_string(
+                admin_toml_path,
+            )?;
+
+        #[derive(
+            serde::Deserialize,
+        )]
+
+        struct AdminConfig {
+            password: String,
+        }
+
+        let admin_config: AdminConfig =
+            toml::from_str(&content)?;
+
+        let salt = SaltString::generate(
+            &mut OsRng,
+        );
+
+        let argon2 = Argon2::default();
+
+        let password_hash = argon2
+            .hash_password(
+                admin_config
+                    .password
+                    .as_bytes(),
+                &salt,
+            )
+            .map_err(|e| {
+
+                format!(
+                    "Failed to hash \
+                     password: {}",
+                    e
+                )
+            })?
+            .to_string();
+
+        let assets_dir =
+            if Path::new("assets")
+                .exists()
+            {
+
+                "assets"
+            } else {
+
+                "../assets"
+            };
+
+        let admin_bin_path =
+            Path::new(assets_dir)
+                .join("admin.bin");
+
+        // Remove existing file first to
+        // avoid appending to stale data
+        if admin_bin_path.exists() {
+
+            std::fs::remove_file(
+                &admin_bin_path,
+            )?;
+        }
+
+        std::fs::write(
+            &admin_bin_path,
+            password_hash,
+        )?;
+
+        println!(
+            "cargo:warning=Admin \
+             password hashed and \
+             saved to {:?}",
+            admin_bin_path
+        );
+    }
+
     Ok(())
 }
 

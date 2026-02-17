@@ -414,9 +414,170 @@ pub async fn get_paper_count(
     Ok(count as usize)
 }
 
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    Default,
+    PartialEq,
+    bitcode::Encode,
+    bitcode::Decode,
+)]
+
+pub struct ArxivConfig {
+    pub category: String,
+    pub start: i32,
+    pub max_results: i32,
+    pub lookback_days: i32,
+}
+
 #[allow(clippy::inline_always)]
 #[inline(always)]
-#[server(GetConfig, "/api", input = Bitcode, output = Bitcode)]
+#[server(GetArxivConfig, "/api/get_arxiv_config", input = Bitcode, output = Bitcode)]
+
+pub async fn get_arxiv_config()
+-> Result<ArxivConfig, ServerFnError> {
+
+    let content =
+        std::fs::read_to_string(
+            "config.toml",
+        )
+        .or_else(|_| {
+
+            std::fs::read_to_string(
+                "../config.toml",
+            )
+        })
+        .map_err(|e| {
+
+            ServerFnError::new(format!(
+                "Failed to read \
+                 config: {}",
+                e
+            ))
+        })?;
+
+    #[derive(Deserialize)]
+
+    struct Config {
+        arxiv: ArxivConfig,
+    }
+
+    let config: Config = toml::from_str(&content)
+        .map_err(|e| ServerFnError::new(format!("Failed to parse config: {}", e)))?;
+
+    Ok(config.arxiv)
+}
+
+#[allow(clippy::inline_always)]
+#[inline(always)]
+#[server(SaveArxivConfig, "/api/save_arxiv_config", input = Bitcode, output = Bitcode)]
+
+pub async fn save_arxiv_config(
+    password: String,
+    arxiv: ArxivConfig,
+) -> Result<(), ServerFnError> {
+
+    if !verify_admin(&password).await? {
+
+        return Err(
+            ServerFnError::new(
+                "Unauthorized: \
+                 Invalid admin \
+                 password",
+            ),
+        );
+    }
+
+    let path = if std::path::Path::new(
+        "config.toml",
+    )
+    .exists()
+    {
+
+        "config.toml"
+    } else {
+
+        "../config.toml"
+    };
+
+    let content =
+        std::fs::read_to_string(path)
+            .map_err(|e| {
+
+            ServerFnError::new(format!(
+                "Failed to read \
+                 config: {}",
+                e
+            ))
+        })?;
+
+    let mut config: toml::Value = content.parse().map_err(|e| {
+        ServerFnError::new(format!("Failed to parse TOML: {}", e))
+    })?;
+
+    if let Some(arxiv_val) =
+        config.get_mut("arxiv")
+    {
+
+        if let Some(table) =
+            arxiv_val.as_table_mut()
+        {
+
+            table.insert(
+                "category".to_string(),
+                toml::Value::String(
+                    arxiv.category,
+                ),
+            );
+
+            table.insert(
+                "start".to_string(),
+                toml::Value::Integer(
+                    arxiv.start as i64,
+                ),
+            );
+
+            table.insert(
+                "max_results"
+                    .to_string(),
+                toml::Value::Integer(
+                    arxiv.max_results
+                        as i64,
+                ),
+            );
+
+            table.insert(
+                "lookback_days"
+                    .to_string(),
+                toml::Value::Integer(
+                    arxiv.lookback_days
+                        as i64,
+                ),
+            );
+        }
+    }
+
+    std::fs::write(
+        path,
+        config.to_string(),
+    )
+    .map_err(|e| {
+
+        ServerFnError::new(format!(
+            "Failed to write config: \
+             {}",
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
+#[allow(clippy::inline_always)]
+#[inline(always)]
+#[server(GetConfig, "/api/get_config", input = Bitcode, output = Bitcode)]
 
 pub async fn get_config()
 -> Result<String, ServerFnError> {
@@ -443,13 +604,178 @@ pub async fn get_config()
     Ok(content)
 }
 
+#[cfg(feature = "ssr")]
+
+async fn verify_admin(
+    password: &str
+) -> Result<bool, ServerFnError> {
+
+    use argon2::Argon2;
+    use argon2::password_hash::PasswordHash;
+    use argon2::password_hash::PasswordVerifier;
+
+    let assets_dir =
+        if std::path::Path::new(
+            "assets",
+        )
+        .exists()
+        {
+
+            "assets"
+        } else {
+
+            "../assets"
+        };
+
+    let hash_path =
+        std::path::Path::new(
+            assets_dir,
+        )
+        .join("admin.bin");
+
+    let hash_str =
+        std::fs::read_to_string(
+            hash_path,
+        )
+        .map_err(|e| {
+
+            ServerFnError::new(format!(
+                "Security system \
+                 error: {}",
+                e
+            ))
+        })?;
+
+    let parsed_hash =
+        PasswordHash::new(&hash_str)
+            .map_err(|e| {
+
+                ServerFnError::new(
+                    format!(
+                        "Hash error: \
+                         {}",
+                        e
+                    ),
+                )
+            })?;
+
+    Ok(Argon2::default()
+        .verify_password(
+            password.as_bytes(),
+            &parsed_hash,
+        )
+        .is_ok())
+}
+
 #[allow(clippy::inline_always)]
 #[inline(always)]
-#[server(SaveConfig, "/api", input = Bitcode, output = Bitcode)]
+#[server(VerifyAdmin, "/api/verify_admin", input = Bitcode, output = Bitcode)]
+
+pub async fn verify_admin_password(
+    password: String
+) -> Result<bool, ServerFnError> {
+
+    verify_admin(&password).await
+}
+
+#[server(UpdateAdminPassword, "/api/update_admin", input = Bitcode, output = Bitcode)]
+
+pub async fn update_admin_password(
+    old_password: String,
+    new_password: String,
+) -> Result<(), ServerFnError> {
+
+    if !verify_admin(&old_password)
+        .await?
+    {
+
+        return Err(
+            ServerFnError::new(
+                "Unauthorized: \
+                 Invalid current \
+                 password",
+            ),
+        );
+    }
+
+    use argon2::Argon2;
+    use argon2::password_hash::PasswordHasher;
+    use argon2::password_hash::SaltString;
+    use argon2::password_hash::rand_core::OsRng;
+
+    let salt = SaltString::generate(
+        &mut OsRng,
+    );
+
+    let argon2 = Argon2::default();
+
+    let password_hash = argon2
+        .hash_password(
+            new_password.as_bytes(),
+            &salt,
+        )
+        .map_err(|e| {
+
+            ServerFnError::new(format!(
+                "Failed to hash \
+                 password: {}",
+                e
+            ))
+        })?
+        .to_string();
+
+    let assets_dir =
+        if std::path::Path::new(
+            "assets",
+        )
+        .exists()
+        {
+
+            "assets"
+        } else {
+
+            "../assets"
+        };
+
+    let admin_bin_path =
+        std::path::Path::new(
+            assets_dir,
+        )
+        .join("admin.bin");
+
+    std::fs::write(
+        admin_bin_path,
+        password_hash,
+    )
+    .map_err(|e| {
+
+        ServerFnError::new(format!(
+            "Failed to save password: \
+             {}",
+            e
+        ))
+    })?;
+
+    Ok(())
+}
+
+#[server(SaveConfig, "/api/save_config", input = Bitcode, output = Bitcode)]
 
 pub async fn save_config(
-    content: String
+    password: String,
+    content: String,
 ) -> Result<(), ServerFnError> {
+
+    if !verify_admin(&password).await? {
+
+        return Err(
+            ServerFnError::new(
+                "Unauthorized: \
+                 Invalid admin \
+                 password",
+            ),
+        );
+    }
 
     let path = if std::path::Path::new(
         "config.toml",
@@ -596,6 +922,15 @@ pub async fn fetch_new_articles(
             default = "default_max_results"
         )]
         max_results: i32,
+        #[serde(
+            default = "default_lookback"
+        )]
+        lookback_days: i32,
+    }
+
+    fn default_lookback() -> i32 {
+
+        7
     }
 
     fn default_max_results() -> i32 {
@@ -654,23 +989,39 @@ pub async fn fetch_new_articles(
         };
 
         let s_fmt =
-            s.replace("-", "") + "0600";
+            s.replace("-", "") + "0000";
 
         let e_fmt = end_date
             .replace("-", "")
-            + "0600";
+            + "2359";
 
-        // ArXiv API requires at least one search term (like cat:xxx) to be used with a date range.
-        // We use the target category to satisfy this requirement.
         format!(
             "https://export.arxiv.org/api/query?search_query=cat:{}+AND+submittedDate:[{}+TO+{}]&start={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
             target_category, s_fmt, e_fmt, config.arxiv.start, config.arxiv.max_results
         )
     } else {
 
+        let now = Utc::now();
+
+        let start = now
+            - chrono::Duration::days(
+                config
+                    .arxiv
+                    .lookback_days
+                    as i64,
+            );
+
+        let s_fmt = start
+            .format("%Y%m%d%H%M")
+            .to_string();
+
+        let e_fmt = now
+            .format("%Y%m%d%H%M")
+            .to_string();
+
         format!(
-            "http://export.arxiv.org/api/query?search_query=cat:{}&start={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
-            target_category, config.arxiv.start, config.arxiv.max_results
+            "https://export.arxiv.org/api/query?search_query=cat:{}+AND+submittedDate:[{}+TO+{}]&start={}&max_results={}&sortBy=submittedDate&sortOrder=descending",
+            target_category, s_fmt, e_fmt, config.arxiv.start, config.arxiv.max_results
         )
     };
 
@@ -2177,8 +2528,7 @@ fn Dashboard() -> impl IntoView {
         set_show_fetch_status,
     ) = signal(false);
 
-    let (use_llm, set_use_llm) =
-        signal(true);
+    let use_llm = RwSignal::new(true);
 
     let (page, set_page) =
         signal(1usize);
@@ -2220,8 +2570,8 @@ fn Dashboard() -> impl IntoView {
         use_llm: bool,
     }
 
-    let (page_size, set_page_size) =
-        signal(51usize);
+    let page_size =
+        RwSignal::new(51usize);
 
     let (
         trigger_search,
@@ -2234,7 +2584,8 @@ fn Dashboard() -> impl IntoView {
         page: 1,
         page_size: 51,
         negative_query: "".to_string(),
-        use_llm: true,
+        use_llm: use_llm
+            .get_untracked(),
     });
 
     let papers = Resource::new(
@@ -2830,13 +3181,20 @@ fn Dashboard() -> impl IntoView {
                 negative_query=negative_query.into()
                 set_negative_query
                 use_llm=use_llm.into()
-                set_use_llm
+                set_use_llm=use_llm.write_only()
                 page_size=page_size.into()
-                set_page_size
+                set_page_size=page_size.write_only()
                 view_mode=view_mode.into()
             />
 
-            <ConfigModal show=show_config.into() on_close=Callback::new(move |_| set_show_config.set(false))/>
+            <ConfigModal
+                show=show_config.into()
+                on_close=Callback::new(move |_| set_show_config.set(false))
+                use_llm=use_llm
+                page_size=page_size
+                fetch_action=fetch_action
+                selected_category=selected_category.into()
+            />
             <AboutModal show=show_about.into() on_close=Callback::new(move |_| set_show_about.set(false))/>
             <surprise::SurpriseModal show=show_surprise.into() on_close=Callback::new(move |_| set_show_surprise.set(false))/>
 
@@ -3065,93 +3423,687 @@ fn PaperCard(
 fn ConfigModal(
     show: Signal<bool>,
     on_close: Callback<()>,
+    use_llm: RwSignal<bool>,
+    page_size: RwSignal<usize>,
+    fetch_action: Action<
+        (
+            String,
+            String,
+            String,
+        ),
+        Result<usize, ServerFnError>,
+    >,
+    selected_category: Signal<String>,
 ) -> impl IntoView {
 
+    let (is_admin, set_is_admin) =
+        signal(false);
+
+    let (
+        admin_password,
+        set_admin_password,
+    ) = signal("".to_string());
+
+    let (auth_error, set_auth_error) =
+        signal(None::<String>);
+
+    let (
+        show_password_change,
+        set_show_password_change,
+    ) = signal(false);
+
+    let (
+        new_password,
+        set_new_password,
+    ) = signal("".to_string());
+
+    let (
+        confirm_password,
+        set_confirm_password,
+    ) = signal("".to_string());
+
     let config_resource = Resource::new(
-        move || show.get(),
-        |_| {
+        move || {
+
+            (
+                show.get(),
+                is_admin.get(),
+            )
+        },
+        |(show, is_admin)| {
 
             async move {
 
-                get_config().await
+                if show && is_admin {
+
+                    get_config().await
+                } else {
+
+                    Ok("".to_string())
+                }
             }
         },
     );
 
-    let save_action = Action::new(
-        |content: &String| {
+    let arxiv_resource = Resource::new(
+        move || {
 
-            let content =
-                content.clone();
+            (
+                show.get(),
+                is_admin.get(),
+            )
+        },
+        |(show, is_admin)| {
 
             async move {
 
-                save_config(content)
-                    .await
+                if show && is_admin {
+
+                    get_arxiv_config()
+                        .await
+                } else {
+
+                    Ok(ArxivConfig::default())
+                }
             }
         },
     );
 
-    let (content, set_content) =
+    let (arxiv_cat, set_arxiv_cat) =
         signal("".to_string());
+
+    let (arxiv_start, set_arxiv_start) =
+        signal(0);
+
+    let (arxiv_max, set_arxiv_max) =
+        signal(50);
+
+    let (
+        arxiv_lookback,
+        set_arxiv_lookback,
+    ) = signal(7);
+
+    let (sync_start, set_sync_start) =
+        signal("".to_string());
+
+    let (sync_end, set_sync_end) =
+        signal(
+            chrono::Utc::now()
+                .format("%Y-%m-%d")
+                .to_string(),
+        );
+
+    Effect::new(move |_| {
+        if let Some(Ok(c)) =
+            arxiv_resource.get()
+        {
+
+            set_arxiv_cat
+                .set(c.category);
+
+            set_arxiv_start
+                .set(c.start);
+
+            set_arxiv_max
+                .set(c.max_results);
+
+            set_arxiv_lookback
+                .set(c.lookback_days);
+        }
+    });
+
+    let (
+        manual_cat_override,
+        set_manual_cat_override,
+    ) = signal(None::<String>);
+
+    let save_arxiv_action = Action::new(
+        |input: &(
+            String,
+            ArxivConfig,
+        )| {
+
+            let password =
+                input.0.clone();
+
+            let arxiv = input.1.clone();
+
+            async move {
+
+                save_arxiv_config(
+                    password,
+                    arxiv,
+                )
+                .await
+            }
+        },
+    );
+
+    let (
+        local_fetching,
+        set_local_fetching,
+    ) = signal(false);
+
+    // Load local settings
+    Effect::new(move |_| {
+
+        #[cfg(feature = "hydrate")]
+        {
+
+            if let Some(window) =
+                web_sys::window()
+            {
+
+                if let Ok(Some(
+                    storage,
+                )) = window
+                    .local_storage()
+                {
+
+                    if let Ok(Some(val)) =
+                        storage.get("local_fetching")
+                    {
+                        set_local_fetching
+                            .set(val == "true");
+                    }
+                }
+            }
+        }
+    });
+
+    let save_config_action =
+        Action::new(
+            |input: &(
+                String,
+                String,
+            )| {
+
+                let password =
+                    input.0.clone();
+
+                let content =
+                    input.1.clone();
+
+                async move {
+
+                    save_config(
+                        password,
+                        content,
+                    )
+                    .await
+                }
+            },
+        );
+
+    let update_password_action =
+        Action::new(
+            |input: &(
+                String,
+                String,
+            )| {
+
+                let old =
+                    input.0.clone();
+
+                let new =
+                    input.1.clone();
+
+                async move {
+
+                    update_admin_password(old, new).await
+                }
+            },
+        );
+
+    let (
+        config_content,
+        set_config_content,
+    ) = signal("".to_string());
 
     Effect::new(move |_| {
         if let Some(Ok(c)) =
             config_resource.get()
         {
 
-            set_content.set(c);
+            set_config_content.set(c);
+        }
+    });
+
+    let verify_admin_action =
+        Action::new(
+            |password: &String| {
+
+                let p =
+                    password.clone();
+
+                async move {
+
+                    verify_admin_password(p).await
+                }
+            },
+        );
+
+    Effect::new(move |_| {
+        if let Some(Ok(true)) =
+            verify_admin_action
+                .value()
+                .get()
+        {
+
+            set_is_admin.set(true);
+
+            set_auth_error.set(None);
+        } else if let Some(Ok(false)) =
+            verify_admin_action
+                .value()
+                .get()
+        {
+
+            set_auth_error.set(Some(
+                "Invalid admin \
+                 password"
+                    .to_string(),
+            ));
         }
     });
 
     view! {
         <Show when=move || show.get()>
-            <div class="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/40 backdrop-blur-md animate-fade-in">
+            <div class="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-6 bg-black/60 backdrop-blur-xl animate-fade-in">
                 <div class="glass-dark border border-white/10 rounded-[2.5rem] w-full max-w-2xl shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] overflow-hidden animate-scale-in">
-                    <div class="px-8 py-6 border-b border-white/5 flex justify-between items-center">
-                        <div class="flex items-center gap-3">
-                            <div class="p-2 bg-obsidian-accent/10 rounded-xl">
-                                <svg class="w-5 h-5 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    // Header
+                    <div class="px-8 py-6 border-b border-white/5 flex justify-between items-center bg-white/5">
+                        <div class="flex items-center gap-4">
+                            <div class="p-2.5 bg-obsidian-accent/10 rounded-2xl">
+                                <svg class="w-6 h-6 text-obsidian-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                 </svg>
                             </div>
-                            <h2 class="text-xl font-black text-obsidian-heading tracking-tight">"System Parameters"</h2>
+                            <div>
+                                <h2 class="text-xl font-black text-obsidian-heading tracking-tight">"Configuration"</h2>
+                                <p class="text-[10px] text-obsidian-text/40 font-bold uppercase tracking-widest">
+                                    {move || if is_admin.get() { "Administrator Access" } else { "User Preferences" }}
+                                </p>
+                            </div>
                         </div>
-                        <button on:click=move |_| on_close.run(()) class="w-10 h-10 rounded-full flex items-center justify-center text-obsidian-text/40 hover:bg-white/5 hover:text-white transition-all">"✕"</button>
+                        <button on:click=move |_| {
+                            on_close.run(());
+                            set_is_admin.set(false);
+                            set_admin_password.set("".to_string());
+                        } class="w-10 h-10 rounded-full flex items-center justify-center text-obsidian-text/40 hover:bg-white/5 hover:text-white transition-all bg-white/5 border border-white/5">"✕"</button>
                     </div>
-                    <div class="p-8 space-y-6">
-                        <div class="space-y-2">
-                            <label class="text-[10px] font-black text-obsidian-text/20 uppercase tracking-[0.2em] ml-2">"Direct Configuration Header (TOML)"</label>
-                            <textarea
-                                class="w-full h-80 bg-black/40 border border-white/5 rounded-3xl p-6 font-mono text-sm text-obsidian-text/80 focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all custom-scrollbar outline-none"
-                                on:input=move |ev| set_content.set(event_target_value(&ev))
-                                prop:value=content
-                            />
-                        </div>
-                        <div class="bg-obsidian-accent/5 border border-obsidian-accent/10 p-5 rounded-3xl flex gap-4">
-                            <svg class="w-5 h-5 text-obsidian-accent shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <p class="text-[12px] leading-relaxed text-obsidian-text/50 font-medium">"Manual modifications to the core configuration may affect system stability. Verify TOML syntax before persisting changes."</p>
-                        </div>
-                    </div>
-                    <div class="px-8 py-6 border-t border-white/5 flex justify-end gap-4">
-                        <button
-                            on:click=move |_| on_close.run(())
-                            class="px-6 py-3 text-[11px] font-black uppercase tracking-widest text-obsidian-text/40 hover:text-white transition-colors"
-                        >
-                            "Cancel"
-                        </button>
-                        <button
-                            on:click=move |_| {
-                                save_action.dispatch(content.get());
-                                on_close.run(());
+
+                    // Content
+                    <div class="p-8 space-y-8 max-h-[70vh] overflow-y-auto custom-scrollbar">
+                        <Show
+                            when=move || is_admin.get()
+                            fallback=move || view! {
+                                <div class="space-y-8 animate-fade-in">
+                                    // User Settings Section
+                                    <div class="space-y-6">
+                                        <div class="flex items-center justify-between p-6 bg-white/5 rounded-3xl border border-white/5 hover:border-obsidian-accent/20 transition-all group">
+                                            <div class="space-y-1">
+                                                <h3 class="font-bold text-obsidian-heading">"AI Assistance"</h3>
+                                                <p class="text-xs text-obsidian-text/40">"Toggle LLM-powered paper filtering and enrichment"</p>
+                                            </div>
+                                            <button
+                                                on:click=move |_| use_llm.update(|v| *v = !*v)
+                                                class=move || format!(
+                                                    "w-12 h-6 rounded-full transition-all flex items-center px-1 {}",
+                                                    if use_llm.get() { "bg-obsidian-accent" } else { "bg-white/10" }
+                                                )
+                                            >
+                                                <div class=move || format!(
+                                                    "w-4 h-4 bg-white rounded-full shadow-lg transition-all transform {}",
+                                                    if use_llm.get() { "translate-x-6" } else { "translate-x-0" }
+                                                ) />
+                                            </button>
+                                        </div>
+
+                                        <div class="flex items-center justify-between p-6 bg-white/5 rounded-3xl border border-white/5 hover:border-obsidian-accent/20 transition-all group">
+                                            <div class="space-y-1">
+                                                <h3 class="font-bold text-obsidian-heading">"Local Fetching"</h3>
+                                                <p class="text-xs text-obsidian-text/40">"Perform RSS fetching directly from browser"</p>
+                                            </div>
+                                            <button
+                                                on:click=move |_| {
+                                                    let new_val = !local_fetching.get();
+                                                    set_local_fetching.set(new_val);
+                                                    #[cfg(feature = "hydrate")]
+                                                    {
+                                                        if let Some(window) = web_sys::window() {
+                                                            if let Ok(Some(storage)) = window.local_storage() {
+                                                                let _ = storage.set("local_fetching", if new_val { "true" } else { "false" });
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                                class=move || format!(
+                                                    "w-12 h-6 rounded-full transition-all flex items-center px-1 {}",
+                                                    if local_fetching.get() { "bg-obsidian-accent" } else { "bg-white/10" }
+                                                )
+                                            >
+                                                <div class=move || format!(
+                                                    "w-4 h-4 bg-white rounded-full shadow-lg transition-all transform {}",
+                                                    if local_fetching.get() { "translate-x-6" } else { "translate-x-0" }
+                                                ) />
+                                            </button>
+                                        </div>
+
+                                        <div class="p-6 bg-white/5 rounded-3xl border border-white/5 space-y-4">
+                                            <div class="px-2 flex items-center justify-between mb-2">
+                                                <div class="space-y-1">
+                                                    <h3 class="font-bold text-obsidian-heading">"Manual Archive Sync"</h3>
+                                                    <p class="text-[10px] text-obsidian-text/30 uppercase tracking-widest font-black">"Sync specific date range"</p>
+                                                </div>
+                                                <div class="w-1.5 h-1.5 rounded-full bg-obsidian-accent animate-pulse" />
+                                            </div>
+
+                                            <div class="flex items-center gap-3 px-2 mb-4">
+                                                <button
+                                                    on:click=move |_| {
+                                                        let now = chrono::Utc::now();
+                                                        set_sync_end.set(now.format("%Y-%m-%d").to_string());
+                                                        set_sync_start.set((now - chrono::TimeDelta::try_days(1).unwrap_or_default()).format("%Y-%m-%d").to_string());
+                                                    }
+                                                    class="text-[8px] font-black uppercase tracking-widest text-obsidian-text/30 hover:text-obsidian-accent transition-colors"
+                                                >
+                                                    "Last 24h"
+                                                </button>
+                                                <span class="text-obsidian-text/10 text-[8px]">"•"</span>
+                                                <button
+                                                    on:click=move |_| {
+                                                        let now = chrono::Utc::now();
+                                                        set_sync_end.set(now.format("%Y-%m-%d").to_string());
+                                                        set_sync_start.set((now - chrono::TimeDelta::try_days(7).unwrap_or_default()).format("%Y-%m-%d").to_string());
+                                                    }
+                                                    class="text-[8px] font-black uppercase tracking-widest text-obsidian-text/30 hover:text-obsidian-accent transition-colors"
+                                                >
+                                                    "Last 7d"
+                                                </button>
+                                                <span class="text-obsidian-text/10 text-[8px]">"•"</span>
+                                                <button
+                                                    on:click=move |_| {
+                                                        let now = chrono::Utc::now();
+                                                        set_sync_end.set(now.format("%Y-%m-%d").to_string());
+                                                        set_sync_start.set((now - chrono::TimeDelta::try_days(30).unwrap_or_default()).format("%Y-%m-%d").to_string());
+                                                    }
+                                                    class="text-[8px] font-black uppercase tracking-widest text-obsidian-text/30 hover:text-obsidian-accent transition-colors"
+                                                >
+                                                    "Last 30d"
+                                                </button>
+                                            </div>
+
+                                            <div class="grid grid-cols-2 gap-3">
+                                                <div class="space-y-2">
+                                                    <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"Start Date"</label>
+                                                    <input
+                                                        type="date"
+                                                        class="w-full bg-black/40 border border-white/5 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono text-obsidian-text/80"
+                                                        on:input=move |ev| set_sync_start.set(event_target_value(&ev))
+                                                        prop:value=sync_start
+                                                    />
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"End Date"</label>
+                                                    <input
+                                                        type="date"
+                                                        class="w-full bg-black/40 border border-white/5 rounded-2xl px-4 py-3 text-xs focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono text-obsidian-text/80"
+                                                        on:input=move |ev| set_sync_end.set(event_target_value(&ev))
+                                                        prop:value=sync_end
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <button
+                                                on:click=move |_| {
+                                                    fetch_action.dispatch((
+                                                        selected_category.get(),
+                                                        sync_start.get(),
+                                                        sync_end.get()
+                                                    ));
+                                                }
+                                                class="w-full py-4 bg-obsidian-accent/10 hover:bg-obsidian-accent/20 text-obsidian-accent text-[9px] font-black uppercase tracking-widest rounded-2xl transition-all border border-obsidian-accent/20 flex items-center justify-center gap-2 group"
+                                                disabled=move || fetch_action.pending().get()
+                                            >
+                                                {move || if fetch_action.pending().get() {
+                                                    view! { <div class="w-3 h-3 border-2 border-obsidian-accent/20 border-t-obsidian-accent rounded-full animate-spin"></div> }.into_any()
+                                                } else {
+                                                    view! {
+                                                        <svg class="w-3.5 h-3.5 group-hover:rotate-180 transition-transform duration-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                        </svg>
+                                                    }.into_any()
+                                                }}
+                                                "Trigger Fetch Cycle"
+                                            </button>
+                                        </div>
+
+                                        <div class="p-6 bg-white/5 rounded-3xl border border-white/5 space-y-4">
+                                            <div class="flex justify-between items-center">
+                                                <h3 class="font-bold text-obsidian-heading">"Default Page Size"</h3>
+                                                <span class="text-xs font-black text-obsidian-accent bg-obsidian-accent/10 px-3 py-1 rounded-full">{move || page_size.get()} " items"</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="10"
+                                                max="100"
+                                                step="5"
+                                                prop:value=move || page_size.get().to_string()
+                                                on:input=move |ev| {
+                                                    if let Ok(val) = event_target_value(&ev).parse::<usize>() {
+                                                        page_size.set(val);
+                                                    }
+                                                }
+                                                class="w-full accent-obsidian-accent opacity-70 hover:opacity-100 transition-opacity cursor-pointer"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    // Switch to Admin Button
+                                    <div class="pt-8 border-t border-white/5 flex flex-col items-center gap-4">
+                                        <p class="text-[10px] font-black text-obsidian-text/20 uppercase tracking-[0.2em]">"Administrative Controls"</p>
+                                        <div class="flex w-full gap-2">
+                                            <input
+                                                type="password"
+                                                placeholder="Enter Admin Password"
+                                                class="flex-1 bg-white/5 border border-white/5 rounded-2xl px-5 py-3.5 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                on:input=move |ev| set_admin_password.set(event_target_value(&ev))
+                                                on:keydown=move |ev| {
+                                                    if ev.key() == "Enter" {
+                                                        verify_admin_action.dispatch(admin_password.get());
+                                                    }
+                                                }
+                                                prop:value=admin_password
+                                            />
+                                            <button
+                                                on:click=move |_| { verify_admin_action.dispatch(admin_password.get()); }
+                                                class="px-6 bg-white/10 hover:bg-white/20 text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all"
+                                            >
+                                                "Login"
+                                            </button>
+                                        </div>
+                                        <Show when=move || auth_error.get().is_some()>
+                                            <p class="text-red-400 text-[10px] font-bold uppercase tracking-wider">{move || auth_error.get()}</p>
+                                        </Show>
+                                    </div>
+                                </div>
                             }
-                            class="px-8 py-3 bg-gradient-to-br from-obsidian-accent to-obsidian-accent/80 text-white text-[11px] font-black uppercase tracking-widest rounded-2xl hover:brightness-110 transition-all shadow-[0_10px_20px_-5px_rgba(59,130,246,0.4)] active:scale-95"
                         >
-                            "Persist Changes"
-                        </button>
+                            // Admin Panel view content
+                            <div class="space-y-8 animate-fade-in">
+                                <Show
+                                    when=move || !show_password_change.get()
+                                    fallback=move || view! {
+                                        <div class="space-y-6">
+                                            <div class="flex items-center gap-3 mb-2">
+                                                <button on:click=move |_| set_show_password_change.set(false) class="p-2 hover:bg-white/5 rounded-xl transition-all text-obsidian-text/40">"←"</button>
+                                                <h3 class="font-bold text-obsidian-heading">"Change Admin Password"</h3>
+                                            </div>
+                                            <div class="space-y-4">
+                                                <div class="space-y-2">
+                                                    <label class="text-[10px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"New Password"</label>
+                                                    <input
+                                                        type="password"
+                                                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                        on:input=move |ev| set_new_password.set(event_target_value(&ev))
+                                                        prop:value=new_password
+                                                    />
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <label class="text-[10px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"Confirm Password"</label>
+                                                    <input
+                                                        type="password"
+                                                        class="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                        on:input=move |ev| set_confirm_password.set(event_target_value(&ev))
+                                                        prop:value=confirm_password
+                                                    />
+                                                </div>
+                                                <button
+                                                    on:click=move |_| {
+                                                        if new_password.get() == confirm_password.get() && !new_password.get().is_empty() {
+                                                            update_password_action.dispatch((admin_password.get(), new_password.get()));
+                                                            set_show_password_change.set(false);
+                                                            set_new_password.set("".to_string());
+                                                            set_confirm_password.set("".to_string());
+                                                        }
+                                                    }
+                                                    class="w-full py-4 bg-obsidian-accent text-white text-xs font-black uppercase tracking-widest rounded-2xl hover:brightness-110 transition-all"
+                                                >
+                                                    "Update Password"
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                >
+                                    <div class="space-y-8 animate-fade-in">
+                                        // Structured Config Section
+                                        <div class="space-y-6 bg-white/5 p-6 rounded-[2rem] border border-white/5">
+                                            <div class="flex items-center justify-between px-2">
+                                                <label class="text-[10px] font-black text-obsidian-text/30 uppercase tracking-[0.2em]">"Quick Arxiv Config"</label>
+                                                <Show when=move || save_arxiv_action.value().get().is_some()>
+                                                    <span class="text-[9px] font-black text-green-400 uppercase tracking-widest animate-pulse">"✓ Saved"</span>
+                                                </Show>
+                                            </div>
+                                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                <div class="space-y-2">
+                                                    <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"Category"</label>
+                                                    <input
+                                                        type="text"
+                                                        class="w-full bg-black/20 border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                        on:input=move |ev| set_arxiv_cat.set(event_target_value(&ev))
+                                                        prop:value=arxiv_cat
+                                                    />
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"Start Offset"</label>
+                                                    <input
+                                                        type="number"
+                                                        class="w-full bg-black/20 border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                        on:input=move |ev| {
+                                                            if let Ok(val) = event_target_value(&ev).parse::<i32>() {
+                                                                set_arxiv_start.set(val);
+                                                            }
+                                                        }
+                                                        prop:value=arxiv_start
+                                                    />
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest ml-2">"Max Results"</label>
+                                                    <input
+                                                        type="number"
+                                                        class="w-full bg-black/20 border border-white/5 rounded-2xl px-5 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all font-mono"
+                                                        on:input=move |ev| {
+                                                            if let Ok(val) = event_target_value(&ev).parse::<i32>() {
+                                                                set_arxiv_max.set(val);
+                                                            }
+                                                        }
+                                                        prop:value=arxiv_max
+                                                    />
+                                                </div>
+                                                <div class="space-y-2">
+                                                    <div class="flex justify-between px-2">
+                                                        <label class="text-[9px] font-black text-obsidian-text/20 uppercase tracking-widest">"Lookback Window"</label>
+                                                        <span class="text-[9px] font-black text-obsidian-accent">{move || arxiv_lookback.get()} " d"</span>
+                                                    </div>
+                                                    <div class="flex items-center gap-3">
+                                                        <input
+                                                            type="range"
+                                                            min="1"
+                                                            max="90"
+                                                            prop:value=move || arxiv_lookback.get().to_string()
+                                                            on:input=move |ev| {
+                                                                if let Ok(val) = event_target_value(&ev).parse::<i32>() {
+                                                                    set_arxiv_lookback.set(val);
+                                                                }
+                                                            }
+                                                            class="flex-1 h-1 bg-black/40 rounded-lg appearance-none cursor-pointer accent-obsidian-accent"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div class="flex justify-end">
+                                                <button
+                                                    on:click=move |_| {
+                                                        save_arxiv_action.dispatch((admin_password.get(), ArxivConfig {
+                                                            category: arxiv_cat.get(),
+                                                            start: arxiv_start.get(),
+                                                            max_results: arxiv_max.get(),
+                                                            lookback_days: arxiv_lookback.get(),
+                                                        }));
+                                                    }
+                                                    class="px-6 py-2.5 bg-obsidian-accent/10 hover:bg-obsidian-accent/20 text-obsidian-accent text-[9px] font-black uppercase tracking-widest rounded-xl transition-all border border-obsidian-accent/20"
+                                                >
+                                                    "Update Arxiv Defaults"
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-4">
+                                        <div class="flex justify-between items-end px-2">
+                                            <label class="text-[10px] font-black text-obsidian-text/30 uppercase tracking-[0.2em]">"Global TOML Config"</label>
+                                            <button
+                                                on:click=move |_| set_show_password_change.set(true)
+                                                class="text-[10px] font-black text-obsidian-accent/60 hover:text-obsidian-accent uppercase tracking-widest transition-colors"
+                                            >
+                                                "Manage Security"
+                                            </button>
+                                        </div>
+                                        <textarea
+                                            class="w-full h-80 bg-black/40 border border-white/5 rounded-[2rem] p-6 font-mono text-xs text-obsidian-text/80 focus:outline-none focus:ring-2 focus:ring-obsidian-accent/20 transition-all custom-scrollbar outline-none shadow-inner"
+                                            on:input=move |ev| set_config_content.set(event_target_value(&ev))
+                                            prop:value=config_content
+                                        />
+                                        <div class="flex justify-end gap-3 pt-4">
+                                            <button
+                                                on:click=move |_| set_is_admin.set(false)
+                                                class="px-6 py-3 text-[10px] font-black uppercase tracking-widest text-obsidian-text/40 hover:text-white"
+                                            >
+                                                "Logout"
+                                            </button>
+                                            <button
+                                                on:click=move |_| {
+                                                    save_config_action.dispatch((admin_password.get(), config_content.get()));
+                                                }
+                                                class="px-8 py-3 bg-obsidian-accent text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:brightness-110 transition-all shadow-lg"
+                                            >
+                                                "Persist to Disk"
+                                            </button>
+                                        </div>
+                                    </div>
+                                    </div>
+                                </Show>
+                            </div>
+                        </Show>
+                    </div>
+
+                    // Footer message
+                    <div class="px-8 py-5 bg-black/20 border-t border-white/5 flex items-center justify-center gap-3">
+                        <div class="w-1.5 h-1.5 rounded-full bg-obsidian-accent animate-pulse" />
+                        <p class="text-[9px] font-bold text-obsidian-text/30 uppercase tracking-[0.15em]">
+                            "Changes may require a system refresh to take effect"
+                        </p>
                     </div>
                 </div>
             </div>

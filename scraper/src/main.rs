@@ -37,6 +37,7 @@ struct ArxivConfig {
     category: String,
     start: u32,
     max_results: u32,
+    lookback_days: u32,
 }
 
 #[derive(Debug, Deserialize)]

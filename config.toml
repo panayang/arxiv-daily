@@ -2,6 +2,7 @@
 category = "hep-th"
 start = 0
 max_results = 2000
+lookback_days = 7
 
 [database]
 path = "./data/arxiv_daily.db"
