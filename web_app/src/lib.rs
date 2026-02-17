@@ -743,6 +743,15 @@ pub async fn update_admin_password(
         )
         .join("admin.bin");
 
+    // Remove existing file first to
+    // avoid appending to stale data
+    if admin_bin_path.exists() {
+
+        std::fs::remove_file(
+            &admin_bin_path,
+        )?;
+    }
+
     std::fs::write(
         admin_bin_path,
         password_hash,
