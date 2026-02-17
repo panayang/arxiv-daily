@@ -169,6 +169,11 @@ async fn main() {
 
     env_logger::init();
 
+    // Configure rustls to use aws-lc-rs
+    rustls::crypto::aws_lc_rs::default_provider()
+        .install_default()
+        .expect("Failed to install default crypto provider");
+
     let _args = Args::parse();
 
     use axum::Router;
@@ -254,18 +259,22 @@ async fn main() {
             move || shell(options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
+        .layer(tower_http::set_header::SetResponseHeaderLayer::overriding(
+            http::header::ALT_SVC,
+            http::header::HeaderValue::from_str(&format!("h3=\":{}\"; ma=86400", addr.port())).unwrap(),
+        ))
         .with_state(leptos_options);
 
-    // run our app with hyper
-    let listener =
-        tokio::net::TcpListener::bind(
-            &addr,
-        )
-        .await
-        .unwrap();
+    let tls_cert = include_bytes!(
+        "../assets/cert.pem"
+    );
+
+    let tls_key = include_bytes!(
+        "../assets/key.pem"
+    );
 
     println!(
-        "listening on http://{}",
+        "listening on https://{}",
         &addr
     );
 
@@ -273,7 +282,7 @@ async fn main() {
     {
 
         let url =
-            format!("http://{}", addr);
+            format!("https://{}", addr);
 
         if let Err(e) = open::that(&url)
         {
@@ -286,9 +295,159 @@ async fn main() {
         }
     }
 
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    // Serving logic
+    let tls_config = axum_server::tls_rustls::RustlsConfig::from_pem(tls_cert.to_vec(), tls_key.to_vec()).await.unwrap();
+
+    let h1_h2_server =
+        axum_server::bind_rustls(
+            addr,
+            tls_config,
+        )
+        .serve(
+            app.clone()
+                .into_make_service(),
+        );
+
+    // HTTP/3 (QUIC) server
+    let h3_server = async {
+
+        // Load keys for Quinn (needs rustls::ServerConfig)
+        let certs = rustls_pemfile::certs(&mut &tls_cert[..])
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Valid certs");
+
+        let key = rustls_pemfile::private_key(&mut &tls_key[..])
+            .expect("Valid key")
+            .expect("Valid key found");
+
+        let mut server_crypto = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certs, key)
+            .expect("Valid config");
+
+        server_crypto.alpn_protocols =
+            vec![b"h3".to_vec()];
+
+        let server_config = quinn::ServerConfig::with_crypto(std::sync::Arc::new(
+            quinn::crypto::rustls::QuicServerConfig::try_from(server_crypto).unwrap()
+        ));
+
+        let endpoint =
+            quinn::Endpoint::server(
+                server_config,
+                addr,
+            )
+            .unwrap();
+
+        while let Some(new_conn) =
+            endpoint
+                .accept()
+                .await
+        {
+
+            let app = app.clone();
+
+            tokio::spawn(async move {
+
+                match new_conn.await {
+                    | Ok(conn) => {
+
+                        let mut h3_conn = h3::server::Connection::new(h3_quinn::Connection::new(conn)).await.unwrap();
+
+                        let app =
+                            app.clone();
+
+                        tokio::spawn(
+                            async move {
+
+                                loop {
+
+                                    match h3_conn.accept().await {
+                                    Ok(Some(resolver)) => {
+                                        let app = app.clone();
+                                        tokio::spawn(async move {
+                                            let (req, stream) = match resolver.resolve_request().await {
+                                                 Ok(v) => v,
+                                                 Err(e) => {
+                                                     eprintln!("Error resolving request: {}", e);
+                                                     return;
+                                                 }
+                                            };
+                                            let (mut send_stream, mut recv_stream) = stream.split();
+
+                                            use axum::body::Body;
+                                            #[allow(unused_imports)]
+                                            use h3::server::RequestStream;
+                                            use futures::StreamExt;
+                                            use bytes::Bytes;
+                                            #[allow(unused_imports)]
+                                            use http_body_util::BodyExt;
+                                            use async_stream::stream;
+
+                                            let (parts, _) = req.into_parts();
+                                            // Convert H3 stream to Axum body
+                                            use bytes::Buf; // Import Buf trait
+                                            let body_stream = stream! {
+                                                while let Ok(Some(mut chunk)) = recv_stream.recv_data().await {
+                                                    let bytes = chunk.copy_to_bytes(chunk.remaining());
+                                                    yield Ok::<Bytes, axum::Error>(bytes);
+                                                }
+                                            };
+                                            let req_body = Body::from_stream(body_stream);
+                                            let axum_req = http::Request::from_parts(parts, req_body);
+
+                                            use tower::ServiceExt;
+                                            let service = app.clone();
+
+                                            match service.oneshot(axum_req).await {
+                                                Ok(response) => {
+                                                    let (parts, body) = response.into_parts();
+                                                    let h3_resp = http::Response::from_parts(parts, ());
+
+                                                    if let Err(e) = send_stream.send_response(h3_resp).await {
+                                                         eprintln!("Error sending response head: {}", e);
+                                                         return;
+                                                    }
+
+                                                    // Stream the response body
+                                                    let mut body_stream = body.into_data_stream();
+                                                    while let Some(chunk) = body_stream.next().await {
+                                                        if let Ok(bytes) = chunk {
+                                                            if let Err(e) = send_stream.send_data(bytes).await {
+                                                                 eprintln!("Error sending response data: {}", e);
+                                                                 break;
+                                                            }
+                                                        }
+                                                    }
+                                                    let _ = send_stream.finish().await;
+                                                }
+                                                Err(e) => eprintln!("Service error: {}", e),
+                                            }
+                                        });
+                                    }
+                                    Ok(None) => break, // Connection closed
+                                    Err(e) => {
+                                        eprintln!("H3 accept error: {}", e);
+                                        break;
+                                    }
+                                }
+                                }
+                            },
+                        );
+                    },
+                    | Err(e) => {
+
+                        eprintln!("Error accepting connection: {}", e);
+                    },
+                }
+            });
+        }
+    };
+
+    tokio::select! {
+        _ = h1_h2_server => {},
+        _ = h3_server => {},
+    }
 }
 
 #[cfg(not(feature = "ssr"))]

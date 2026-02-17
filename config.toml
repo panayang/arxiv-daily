@@ -9,4 +9,4 @@ path = "./data/arxiv_daily.db"
 [server]
 ip = "0.0.0.0"
 port = 8088
-site_root = "site"
+site_root = "target/site"

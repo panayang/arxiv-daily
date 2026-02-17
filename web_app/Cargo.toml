@@ -21,6 +21,7 @@ tower = { version = "0.5", optional = true }
 tower-http = { version = "0.6", optional = true, features = [
     "fs",
     "compression-full",
+    "set-header",
 ] }
 tokio = { version = "1", features = ["full"], optional = true }
 sqlx = { version = "0.8", features = [
@@ -34,7 +35,7 @@ bitcode = { version = "0.6", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rayon = { version = "1.10", optional = true }
 shared = { path = "../shared" }
-toml = { version = "0.9", optional = true }
+toml = { version = "1.0", optional = true }
 wasm-bindgen = { version = "0.2", optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 console_log = { version = "1.0", optional = true }
@@ -81,8 +82,19 @@ leptos_workers = { version = "0.3", features = ["ssr"] }
 wgpu = "28.0"
 regex = "1.10"
 latex2mathml = "0.2"
-futures = "0.3.31"
-env_logger = "0.11.8"
+futures = "0.3"
+env_logger = "0.11"
+h3-axum = { version = "0.2", optional = true }
+aws-lc-rs = { version = "1.12", optional = true }
+rustls = { version = "0.23", features = ["aws_lc_rs"], optional = true }
+axum-server = { version = "0.8", features = ["tls-rustls"], optional = true }
+rcgen = { version = "0.14", features = ["aws_lc_rs", "pem"], optional = true }
+quinn = { version = "0.11", optional = true }
+h3 = { version = "0.0.8", optional = true }
+h3-quinn = { version = "0.0.10", optional = true }
+rustls-pemfile = { version = "2", optional = true }
+async-stream = { version = "0.3", optional = true }
+http-body-util = { version = "0.1", optional = true }
 
 [features]
 default = ["ssr"]
@@ -99,24 +111,35 @@ ssr = [
     "leptos_router/ssr",
     "dep:leptos_axum",
     "dep:axum",
+    "dep:tokio",
     "dep:tower",
     "dep:tower-http",
-    "dep:tokio",
+    "dep:axum-server",
+    "dep:open",
     "dep:sqlx",
+    "dep:rcgen",
+    "dep:feed-rs",
+    "dep:reqwest",
+    "dep:rustls",
+    "dep:aws-lc-rs",
+    "dep:h3",
+    "dep:h3-quinn",
+    "dep:rustls-pemfile",
+    "dep:async-stream",
+    "dep:http-body-util",
+    "dep:rssn",
+    "dep:tokenizers",
+    "dep:simd-json",
+    "dep:pulp",
+    "dep:h3-axum",
+    "dep:quinn",
     "dep:rayon",
     "dep:toml",
-    "dep:reqwest",
-    "dep:feed-rs",
-    "dep:open",
     "dep:kalosm",
     "dep:futures-util",
     "dep:candle-core",
     "dep:candle-nn",
     "dep:mistralrs",
-    "dep:rssn",
-    "dep:tokenizers",
-    "dep:simd-json",
-    "dep:pulp",
 ]
 
 [lib]
@@ -136,7 +159,7 @@ lib-features = ["hydrate"]
 site-addr = "0.0.0.0:8088"
 
 [build-dependencies]
-toml = "0.9"
+toml = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 num-bigint = "0.4"
 num-traits = "0.2"
@@ -145,6 +168,14 @@ tokenizers = { version = "0.22" }
 serde_json = "1.0"
 simd-json = "0.17"
 rssn = { version = "0.2", features = ["full"] }
+rcgen = { version = "0.14", default-features = false, features = [
+    "zeroize",
+    "crypto",
+    "pem",
+    "aws_lc_rs",
+    "fips",
+    "x509-parser",
+] }
 vergen = { version = "9", features = [
     "build",
     "cargo",

@@ -433,8 +433,88 @@ fn main() -> Result<
         );
     }
 
+    // HTTP/3 & Crypto: Generate key and self-signed cert
+    generate_tls_assets()?;
+
     Ok(())
 }
+
+fn generate_tls_assets() -> Result<
+    (),
+    Box<dyn std::error::Error>,
+> {
+
+    use std::fs;
+
+    use rcgen::CertificateParams;
+    use rcgen::DistinguishedName;
+    use rcgen::KeyPair;
+
+    let cert_path =
+        Path::new("assets/cert.pem");
+
+    let key_path =
+        Path::new("assets/key.pem");
+
+    if cert_path.exists()
+        && key_path.exists()
+    {
+
+        return Ok(());
+    }
+
+    println!(
+        "cargo:warning=Generating TLS \
+         assets..."
+    );
+
+    let alg =
+        &rcgen::PKCS_ECDSA_P256_SHA256;
+
+    let key_pair =
+        KeyPair::generate_for(alg)?;
+
+    let mut params =
+        CertificateParams::default();
+
+    params.distinguished_name =
+        DistinguishedName::new();
+
+    params
+        .distinguished_name
+        .push(
+            rcgen::DnType::CommonName,
+            "localhost",
+        );
+
+    params.subject_alt_names = vec![
+        rcgen::SanType::DnsName(
+            "localhost".try_into()?,
+        ),
+    ];
+
+    let cert = params
+        .self_signed(&key_pair)?;
+
+    let cert_pem = cert.pem();
+
+    let key_pem =
+        key_pair.serialize_pem();
+
+    fs::create_dir_all("assets")?;
+
+    fs::write(cert_path, cert_pem)?;
+
+    fs::write(key_path, key_pem)?;
+
+    println!(
+        "cargo:warning=TLS assets \
+         generated."
+    );
+
+    Ok(())
+}
+
 
 fn force_bigint(
     root_expr: Expr
