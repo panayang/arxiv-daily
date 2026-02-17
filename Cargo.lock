@@ -811,9 +811,9 @@ dependencies = [
 
 [[package]]
 name = "bincode-next"
-version = "2.0.5"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c64454fed20d99f3275208b6df761f27bcf790d502ec5ec039c8d12c71911ad"
+checksum = "dbe9e7e6d14aeb39557f226bff158a30e367fac279d0e69b8b42fb41999f9a86"
 dependencies = [
  "bincode_derive-next",
  "serde",
@@ -822,9 +822,9 @@ dependencies = [
 
 [[package]]
 name = "bincode_derive-next"
-version = "2.0.5"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc34a0c3deac416617fb017fdc1cb4b5733fcd56362c3b5b2777b4fd2ad6f516"
+checksum = "2af389a025376dbbe728c43dfa5c08f866116c0b62627787c21ca1c69e2b8dec"
 dependencies = [
  "virtue-next",
 ]
@@ -4019,7 +4019,7 @@ dependencies = [
  "gloo-net 0.3.1",
  "gloo-render",
  "gloo-storage",
- "gloo-timers",
+ "gloo-timers 0.2.6",
  "gloo-utils 0.1.7",
  "gloo-worker",
 ]
@@ -4158,6 +4158,18 @@ version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b995a66bb87bebce9a0f4a95aed01daca4872c050bfcb21653361c03bc35e5c"
 dependencies = [
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
+name = "gloo-timers"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbb143cf96099802033e0d4f4963b19fd2e0b728bcf076cd9cf7f6634f092994"
+dependencies = [
+ "futures-channel",
+ "futures-core",
  "js-sys",
  "wasm-bindgen",
 ]
@@ -11554,9 +11566,9 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "unty-next"
-version = "0.0.6"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "169ea32c8f5801e4b397f08d2b5d3d0d3675d11c241aad7338b601beed52a291"
+checksum = "6bce2adbe4c8e63c3e7f79e9249b5409fb3c9bce989dd44337493cf1c8d7dea0"
 
 [[package]]
 name = "uom"
@@ -11778,9 +11790,9 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtue-next"
-version = "0.0.20"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4daab4b8a8c3c1408ea5e60a5d380790ff15d0cfe0333c14ce98210c1339fd8"
+checksum = "507787017685ff1c8dadaab8ca717bc1145b99163bddc0cbbbd210c3d76cb8b0"
 
 [[package]]
 name = "vob"
@@ -12056,6 +12068,8 @@ dependencies = [
  "feed-rs",
  "futures",
  "futures-util",
+ "gloo-net 0.6.0",
+ "gloo-timers 0.3.0",
  "h3",
  "h3-axum",
  "h3-quinn",

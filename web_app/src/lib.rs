@@ -1989,6 +1989,143 @@ pub fn shell(
     }
 }
 
+/// Health check request for the web
+/// worker
+#[derive(
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+
+pub struct HealthCheckRequest {
+    /// The origin URL to check
+    pub origin: String,
+}
+
+/// Health check response from the web
+/// worker
+#[derive(
+    Clone,
+    serde::Serialize,
+    serde::Deserialize,
+)]
+
+pub struct HealthCheckResponse {
+    /// Whether the backend is reachable
+    pub is_healthy: bool,
+}
+
+/// Runs in a dedicated Web Worker thread
+/// via leptos_workers, keeping the main
+/// UI thread completely unblocked.
+#[cfg(feature = "hydrate")]
+#[leptos_workers::worker(
+    HealthCheckWorker
+)]
+
+pub async fn health_check_worker(
+    req: HealthCheckRequest
+) -> HealthCheckResponse {
+
+    let url = format!(
+        "{}/api/health",
+        req.origin
+    );
+
+    let healthy =
+        match gloo_net::http::Request::get(
+            &url,
+        )
+        .send()
+        .await
+        {
+
+            Ok(resp) => resp.ok(),
+            Err(_) => false,
+        };
+
+    HealthCheckResponse {
+        is_healthy: healthy,
+    }
+}
+
+#[component]
+
+fn HealthBanner() -> impl IntoView {
+
+    let (
+        backend_down,
+        set_backend_down,
+    ) = signal(false);
+
+    #[cfg(feature = "hydrate")]
+    {
+
+        use leptos::task::spawn_local;
+
+        spawn_local(async move {
+
+            loop {
+
+                let origin =
+                    web_sys::window()
+                        .expect("window")
+                        .location()
+                        .origin()
+                        .unwrap_or_default();
+
+                match health_check_worker(
+                    HealthCheckRequest {
+                        origin,
+                    },
+                )
+                .await
+                {
+
+                    Ok(resp) => {
+
+                        set_backend_down.set(
+                            !resp.is_healthy,
+                        );
+                    },
+                    Err(_) => {
+
+                        set_backend_down
+                            .set(true);
+                    },
+                }
+
+                gloo_timers::future::TimeoutFuture::new(
+                    5_000,
+                )
+                .await;
+            }
+        });
+    }
+
+    view! {
+        <Show when=move || backend_down.get()>
+            <div
+                id="health-banner"
+                class="fixed top-0 left-0 right-0 z-[9999] \
+                       bg-obsidian-sidebar/90 backdrop-blur-xl \
+                       border-b border-red-500/20 \
+                       text-obsidian-heading text-center \
+                       py-3 px-4 font-medium \
+                       shadow-[0_4px_24px_rgba(239,68,68,0.1)] \
+                       animate-fade-in"
+            >
+                <div class="flex items-center justify-center gap-2">
+                    <span class="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+                    <span class="text-sm tracking-wide text-obsidian-text/70">
+                        "Backend is unreachable — please check if the server is running"
+                    </span>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
 #[component]
 
 pub fn App() -> impl IntoView {
@@ -1999,6 +2136,7 @@ pub fn App() -> impl IntoView {
         <Stylesheet id="leptos" href="/pkg/web_app.css"/>
         <Title text="arXiv Dashboard"/>
 
+        <HealthBanner/>
         <Router>
             <main class="min-h-screen bg-obsidian-bg text-obsidian-text font-sans selection:bg-obsidian-accent/30">
                 <Routes fallback=|| "Not Found".into_any()>

@@ -420,6 +420,15 @@ fn main() -> Result<
         let encoded: Vec<u8> = bincode_next::serde::encode_to_vec(&results, bincode_next::config::standard())
             .map_err(|e| format!("Failed to encode: {}", e))?;
 
+        // Remove existing file first to
+        // avoid appending to stale data
+        if surprise_bin_path.exists() {
+
+            std::fs::remove_file(
+                &surprise_bin_path,
+            )?;
+        }
+
         std::fs::write(
             &surprise_bin_path,
             encoded,

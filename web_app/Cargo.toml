@@ -78,7 +78,7 @@ pulp = { version = "0.22", features = [
     "x86-v4",
     "nightly",
 ], optional = true }
-leptos_workers = { version = "0.3", features = ["ssr"] }
+leptos_workers = { version = "0.3" }
 wgpu = "28.0"
 regex = "1.10"
 latex2mathml = "0.2"
@@ -95,6 +95,8 @@ h3-quinn = { version = "0.0.10", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 async-stream = { version = "0.3", optional = true }
 http-body-util = { version = "0.1", optional = true }
+gloo-net = { version = "0.6", features = ["http"], optional = true }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 
 [features]
 default = ["ssr"]
@@ -104,10 +106,13 @@ hydrate = [
     "dep:console_error_panic_hook",
     "dep:console_log",
     "dep:futures-util",
+    "dep:gloo-net",
+    "dep:gloo-timers",
 ]
 ssr = [
     "leptos/ssr",
     "leptos_meta/ssr",
+    "leptos_workers/ssr",
     "leptos_router/ssr",
     "dep:leptos_axum",
     "dep:axum",
