@@ -450,14 +450,65 @@ fn generate_tls_assets() -> Result<
     use rcgen::DistinguishedName;
     use rcgen::KeyPair;
 
+    let config_path =
+        Path::new("build_config.toml");
+
+    println!(
+        "cargo:rerun-if-changed={}",
+        config_path.display()
+    );
+
+    #[derive(serde::Deserialize)]
+
+    struct BuildConfig {
+        certificate: CertificateConfig,
+    }
+
+    #[derive(serde::Deserialize)]
+
+    struct CertificateConfig {
+        common_name: String,
+        subject_alt_names: Vec<String>,
+        force_regenerate: bool,
+    }
+
+    let config: BuildConfig =
+        if config_path.exists() {
+
+            let content =
+                fs::read_to_string(
+                    config_path,
+                )?;
+
+            toml::from_str(&content)?
+        } else {
+
+            // Default config if file missing
+            BuildConfig {
+            certificate: CertificateConfig {
+                common_name: "localhost".to_string(),
+                subject_alt_names: vec!["localhost".to_string()],
+                force_regenerate: false,
+            }
+        }
+        };
+
+    let assets_dir =
+        Path::new("../assets");
+
+    fs::create_dir_all(assets_dir)?;
+
     let cert_path =
-        Path::new("assets/cert.pem");
+        assets_dir.join("cert.pem");
 
     let key_path =
-        Path::new("assets/key.pem");
+        assets_dir.join("key.pem");
 
     if cert_path.exists()
         && key_path.exists()
+        && !config
+            .certificate
+            .force_regenerate
     {
 
         return Ok(());
@@ -484,14 +535,26 @@ fn generate_tls_assets() -> Result<
         .distinguished_name
         .push(
             rcgen::DnType::CommonName,
-            "localhost",
+            &config
+                .certificate
+                .common_name,
         );
 
-    params.subject_alt_names = vec![
-        rcgen::SanType::DnsName(
-            "localhost".try_into()?,
-        ),
-    ];
+    let mut sans = Vec::new();
+
+    for s in config
+        .certificate
+        .subject_alt_names
+    {
+
+        sans.push(
+            rcgen::SanType::DnsName(
+                s.try_into()?,
+            ),
+        );
+    }
+
+    params.subject_alt_names = sans;
 
     let cert = params
         .self_signed(&key_pair)?;
@@ -501,15 +564,14 @@ fn generate_tls_assets() -> Result<
     let key_pem =
         key_pair.serialize_pem();
 
-    fs::create_dir_all("assets")?;
+    fs::write(&cert_path, cert_pem)?;
 
-    fs::write(cert_path, cert_pem)?;
-
-    fs::write(key_path, key_pem)?;
+    fs::write(&key_path, key_pem)?;
 
     println!(
         "cargo:warning=TLS assets \
-         generated."
+         generated at {:?}.",
+        assets_dir
     );
 
     Ok(())

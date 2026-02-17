@@ -266,11 +266,11 @@ async fn main() {
         .with_state(leptos_options);
 
     let tls_cert = include_bytes!(
-        "../assets/cert.pem"
+        "../../assets/cert.pem"
     );
 
     let tls_key = include_bytes!(
-        "../assets/key.pem"
+        "../../assets/key.pem"
     );
 
     println!(

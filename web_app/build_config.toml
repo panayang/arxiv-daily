@@ -1,0 +1,4 @@
+[certificate]
+common_name = "localhost"
+subject_alt_names = ["localhost"]
+force_regenerate = false
