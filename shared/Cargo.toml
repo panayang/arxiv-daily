@@ -2,7 +2,7 @@
 name = "shared"
 version = "1.3.0"
 edition = "2024"
-rust-version = "1.90.0"
+rust-version = "1.94.0"
 authors = ["Xinyu Yang <Pana.Yang@hotmail.com>"]
 description = "This is arXiv-daily: A dashboard for daily arXiv papers."
 license = "Apache-2.0"
