@@ -10,6 +10,7 @@ def build_and_gather():
     
     env = os.environ.copy()
     env["LEPTOS_WASM_OPT_VERSION"] = "version_125"
+    env["LEPTOS_TAILWIND_VERSION"] = "v4.2.1"
     
     # List of items to find.
     to_gather = [
