@@ -835,11 +835,11 @@ dependencies = [
 
 [[package]]
 name = "bincode-next"
-version = "3.0.0-rc.4"
+version = "3.0.0-rc.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "810a2011ac5bcf4893a85ecab5e900c1eaeda482232a129f58a2b6a6598525a4"
+checksum = "96a286793661cca5bdb534f7ebb929cfe2ca3f27ff8ae06985f13d776c6489d9"
 dependencies = [
- "bincode_derive-next 3.0.0-rc.4",
+ "bincode_derive-next 3.0.0-rc.5",
  "pastey 0.2.1",
  "rapidhash",
  "serde",
@@ -857,9 +857,9 @@ dependencies = [
 
 [[package]]
 name = "bincode_derive-next"
-version = "3.0.0-rc.4"
+version = "3.0.0-rc.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddc8d353e7fe942993516ee720dec829699b7c50f7e7e939123fc19fbd15566a"
+checksum = "6a1ae645ae11c49d76bf87cf7f4867d4362ee5cc54b8698e17d7752589322d5a"
 dependencies = [
  "virtue-next",
 ]
@@ -9438,7 +9438,7 @@ dependencies = [
  "shared",
  "sqlx",
  "tokio",
- "toml 1.0.4+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "vergen",
  "vergen-gitcl",
 ]
@@ -11222,9 +11222,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.0.4+spec-1.1.0"
+version = "1.0.6+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c94c3321114413476740df133f0d8862c61d87c8d26f04c6841e033c8c80db47"
+checksum = "399b1124a3c9e16766831c6bba21e50192572cdd98706ea114f9502509686ffc"
 dependencies = [
  "indexmap 2.13.0",
  "serde_core",
@@ -12128,7 +12128,7 @@ dependencies = [
  "aws-lc-rs",
  "axum",
  "axum-server",
- "bincode-next 3.0.0-rc.4",
+ "bincode-next 3.0.0-rc.5",
  "bitcode",
  "bytes",
  "candle-core 0.9.2",
@@ -12182,7 +12182,7 @@ dependencies = [
  "sqlx",
  "tokenizers 0.22.2",
  "tokio",
- "toml 1.0.4+spec-1.1.0",
+ "toml 1.0.6+spec-1.1.0",
  "tower",
  "tower-http",
  "vergen",
