@@ -79,7 +79,7 @@ pulp = { version = "0.22", features = [
     "nightly",
 ], optional = true }
 leptos_workers = { version = "0.3" }
-wgpu = "28.0"
+wgpu = "29.0"
 regex = "1.10"
 latex2mathml = "0.2"
 futures = "0.3"
@@ -95,10 +95,10 @@ h3-quinn = { version = "0.0.10", optional = true }
 rustls-pemfile = { version = "2", optional = true }
 async-stream = { version = "0.3", optional = true }
 http-body-util = { version = "0.1", optional = true }
-gloo-net = { version = "0.6", features = ["http"], optional = true }
-gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+gloo-net = { version = "0.7", features = ["http"], optional = true }
+gloo-timers = { version = "0.4", features = ["futures"], optional = true }
 argon2 = { version = "0.5", optional = true }
-password-hash = { version = "0.5", optional = true }
+password-hash = { version = "0.6", optional = true }
 rand = { version = "0.10", optional = true }
 
 [features]
