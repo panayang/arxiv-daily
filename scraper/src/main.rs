@@ -48,44 +48,21 @@ struct DatabaseConfig {
 
 #[tokio::main]
 
-async fn main() -> Result<
-    (),
-    Box<dyn std::error::Error>,
-> {
-
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 0. Load Configuration
-    let config_content =
-        std::fs::read_to_string(
-            "config.toml",
-        )?;
+    let config_content = std::fs::read_to_string("config.toml")?;
 
-    let config: Config =
-        toml::from_str(
-            &config_content,
-        )?;
+    let config: Config = toml::from_str(&config_content)?;
 
     // 1. Initialize Database
     // Ensure the parent directory exists
-    if let Some(parent) =
-        std::path::Path::new(
-            &config.database.path,
-        )
-        .parent()
-    {
-
-        std::fs::create_dir_all(
-            parent,
-        )?;
+    if let Some(parent) = std::path::Path::new(&config.database.path).parent() {
+        std::fs::create_dir_all(parent)?;
     }
 
-    let db_url = format!(
-        "sqlite:{}?mode=rwc",
-        config.database.path
-    );
+    let db_url = format!("sqlite:{}?mode=rwc", config.database.path);
 
-    let pool =
-        SqlitePool::connect(&db_url)
-            .await?;
+    let pool = SqlitePool::connect(&db_url).await?;
 
     ensure_schema(&pool).await?;
 
@@ -94,13 +71,7 @@ async fn main() -> Result<
     println!(
         "Fetching from arXiv (cat:{}, \
          start:{}, max:{})...",
-        config
-            .arxiv
-            .category,
-        config.arxiv.start,
-        config
-            .arxiv
-            .max_results
+        config.arxiv.category, config.arxiv.start, config.arxiv.max_results
     );
 
     let url = format!(
@@ -110,17 +81,10 @@ async fn main() -> Result<
 
     let client = reqwest::Client::new();
 
-    let response = client
-        .get(url)
-        .send()
-        .await?
-        .bytes()
-        .await?;
+    let response = client.get(url).send().await?.bytes().await?;
 
     // 3. Parse and Transform
-    let feed = feed_rs::parser::parse(
-        &response[..],
-    )?;
+    let feed = feed_rs::parser::parse(&response[..])?;
 
     println!(
         "Found {} entries. \
@@ -129,21 +93,12 @@ async fn main() -> Result<
     );
 
     // Use Rayon for CPU-bound transformation
-    let papers: Vec<Paper> =
-        tokio::task::spawn_blocking(
-            move || {
+    let papers: Vec<Paper> = tokio::task::spawn_blocking(move || {
+        use rayon::prelude::*;
 
-                use rayon::prelude::*;
-
-                feed.entries
-                    .into_par_iter()
-                    .map(
-                        transform_entry,
-                    )
-                    .collect()
-            },
-        )
-        .await?;
+        feed.entries.into_par_iter().map(transform_entry).collect()
+    })
+    .await?;
 
     // 4. Batch Save to SQLite
     println!(
@@ -153,22 +108,17 @@ async fn main() -> Result<
     );
 
     if !papers.is_empty() {
-
         // Bulk insert using a single query for better performance
         let mut query_builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
-            "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link) "
+            "INSERT INTO papers (id, url, title, updated, published, summary, primary_category, categories, authors, pdf_link) ",
         );
 
         query_builder.push_values(papers, |mut b, paper| {
             b.push_bind(paper.id)
                 .push_bind(paper.url)
                 .push_bind(paper.title)
-                .push_bind(
-                    chrono::DateTime::from_timestamp(paper.updated, 0).unwrap_or_default()
-                )
-                .push_bind(
-                    chrono::DateTime::from_timestamp(paper.published, 0).unwrap_or_default()
-                )
+                .push_bind(chrono::DateTime::from_timestamp(paper.updated, 0).unwrap_or_default())
+                .push_bind(chrono::DateTime::from_timestamp(paper.published, 0).unwrap_or_default())
                 .push_bind(paper.summary)
                 .push_bind(paper.primary_category)
                 .push_bind(paper.categories)
@@ -176,119 +126,64 @@ async fn main() -> Result<
                 .push_bind(paper.pdf_link);
         });
 
-        query_builder.push(
-            " ON CONFLICT(id) DO \
+        query_builder.push( " ON CONFLICT(id) DO \
              UPDATE SET
-            updated = excluded.updated,
-            title = excluded.title,
-            summary = excluded.summary,
-            url = excluded.url",
-        );
+            updated = excluded.updated, title = excluded.title, summary = excluded.summary, url = excluded.url", );
 
-        let query =
-            query_builder.build();
+        let query = query_builder.build();
 
-        query
-            .execute(&pool)
-            .await?;
+        query.execute(&pool).await?;
     }
 
-    println!(
-        "Success! All papers saved."
-    );
+    println!("Success! All papers saved.");
 
-    println!(
-        "Done! Check {}",
-        config.database.path
-    );
+    println!("Done! Check {}", config.database.path);
 
     Ok(())
 }
 
-fn transform_entry(
-    entry: Entry
-) -> Paper {
-
-    let authors: Vec<String> = entry
-        .authors
-        .iter()
-        .map(|a| a.name.clone())
-        .collect();
+fn transform_entry(entry: Entry) -> Paper {
+    let authors: Vec<String> = entry.authors.iter().map(|a| a.name.clone()).collect();
 
     // Extract PDF link specifically
     let pdf_link = entry
         .links
         .iter()
-        .find(|l| {
-
-            l.media_type
-                .as_deref()
-                == Some(
-                    "application/pdf",
-                )
-        })
+        .find(|l| l.media_type.as_deref() == Some("application/pdf"))
         .map(|l| l.href.clone());
 
     let raw_id = entry.id.clone();
 
-    let parsed_id = if let Some(pos) =
-        raw_id.find("/abs/")
-    {
-
-        let s = &raw_id[pos + 5 ..];
+    let parsed_id = if let Some(pos) = raw_id.find("/abs/") {
+        let s = &raw_id[pos + 5..];
 
         // Remove version suffix like v1
-        if let Some(v_pos) =
-            s.rfind('v')
-        {
-
-            if s[v_pos + 1 ..]
-                .chars()
-                .all(|c| {
-
-                    c.is_ascii_digit()
-                })
-            {
-
-                s[.. v_pos].to_string()
+        if let Some(v_pos) = s.rfind('v') {
+            if s[v_pos + 1..].chars().all(|c| c.is_ascii_digit()) {
+                s[..v_pos].to_string()
             } else {
-
                 s.to_string()
             }
         } else {
-
             s.to_string()
         }
     } else {
-
         raw_id.clone()
     };
 
     Paper {
         id: parsed_id,
         url: raw_id,
-        title: entry
-            .title
-            .map(|t| t.content)
-            .unwrap_or_default(),
+        title: entry.title.map(|t| t.content).unwrap_or_default(),
         updated: entry
             .updated
             .map(|d| d.timestamp())
-            .unwrap_or_else(|| {
-
-                Utc::now().timestamp()
-            }),
+            .unwrap_or_else(|| Utc::now().timestamp()),
         published: entry
             .published
             .map(|d| d.timestamp())
-            .unwrap_or_else(|| {
-
-                Utc::now().timestamp()
-            }),
-        summary: entry
-            .summary
-            .map(|s| s.content)
-            .unwrap_or_default(),
+            .unwrap_or_else(|| Utc::now().timestamp()),
+        summary: entry.summary.map(|s| s.content).unwrap_or_default(),
         primary_category: entry
             .categories
             .first()
@@ -300,21 +195,12 @@ fn transform_entry(
             .map(|c| c.term.clone())
             .collect::<Vec<_>>()
             .join(","),
-        authors: serde_json::to_string(
-            &authors,
-        )
-        .unwrap_or_default(),
+        authors: serde_json::to_string(&authors).unwrap_or_default(),
         pdf_link,
     }
 }
 
-async fn ensure_schema(
-    pool: &SqlitePool
-) -> Result<
-    (),
-    Box<dyn std::error::Error>,
-> {
-
+async fn ensure_schema(pool: &SqlitePool) -> Result<(), Box<dyn std::error::Error>> {
     // Ensure table exists
     sqlx::query(
         "CREATE TABLE IF NOT EXISTS \
@@ -416,7 +302,6 @@ async fn ensure_schema(
     .unwrap_or((0,));
 
     if row.0 == 0 {
-
         sqlx::query(
             "INSERT INTO \
              papers_fts(rowid, id, \

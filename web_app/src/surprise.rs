@@ -21,10 +21,7 @@ use rssn::symbolic::core::Expr;
 
 #[cfg(feature = "ssr")]
 
-pub async fn decrypt_surprise_logic(
-    user_key: &str
-) -> Result<String, String> {
-
+pub async fn decrypt_surprise_logic(user_key: &str) -> Result<String, String> {
     let user_key = user_key.trim();
 
     use std::path::Path;
@@ -46,22 +43,14 @@ pub async fn decrypt_surprise_logic(
         key_expr
     );
 
-    let assets_dirs = [
-        "assets",
-        "../assets",
-        "public",
-        "../public",
-    ];
+    let assets_dirs = ["assets", "../assets", "public", "../public"];
 
     let mut bin_path = None;
 
     for dir in assets_dirs {
-
-        let path = Path::new(dir)
-            .join("surprise.bin");
+        let path = Path::new(dir).join("surprise.bin");
 
         if path.exists() {
-
             bin_path = Some(path);
 
             break;
@@ -73,105 +62,60 @@ pub async fn decrypt_surprise_logic(
          not found",
     )?;
 
-    let bytes =
-        std::fs::read(path.clone())
-            .map_err(|e| {
-
-                format!(
-                    "Failed to read \
+    let bytes = std::fs::read(path.clone()).map_err(|e| {
+        format!(
+            "Failed to read \
                      surprise data: {}",
-                    e
-                )
-            })?;
+            e
+        )
+    })?;
 
-    log::info!(
-        "Read {} bytes from {:?}",
-        bytes.len(),
-        path
-    );
+    log::info!("Read {} bytes from {:?}", bytes.len(), path);
 
-    let decoded: (Vec<Expr>, usize) = bincode_next::serde::decode_from_slice(&bytes, bincode_next::config::standard())
-        .map_err(|e| format!("Failed to deserialize: {}", e))?;
+    let decoded: (Vec<Expr>, usize) =
+        bincode_next::serde::decode_from_slice(&bytes, bincode_next::config::standard())
+            .map_err(|e| format!("Failed to deserialize: {}", e))?;
 
     let encrypted_exprs = decoded.0;
 
-    log::info!(
-        "Read {} encrypted chunks",
-        encrypted_exprs.len()
-    );
+    log::info!("Read {} encrypted chunks", encrypted_exprs.len());
 
     let mut deriv = key_expr;
 
-    for _ in 0 .. 5 {
-
-        deriv =
-            differentiate(&deriv, "x");
+    for _ in 0..5 {
+        deriv = differentiate(&deriv, "x");
     }
 
     deriv = simplify(&deriv)
         .to_ast()
-        .unwrap_or_else(|_| {
-
-            simplify(&deriv)
-        });
+        .unwrap_or_else(|_| simplify(&deriv));
 
     deriv = force_bigint(deriv);
 
-    log::info!(
-        "Derivative expr: {}",
-        deriv
-    );
+    log::info!("Derivative expr: {}", deriv);
 
-    let mut full_message_bytes =
-        Vec::new();
+    let mut full_message_bytes = Vec::new();
 
     // Initialize context with a salt derived from the user_key
     // Must match build.rs exactly!
-    let mut context =
-        BigInt::from(0x5A5A5A5A_u32);
+    let mut context = BigInt::from(0x5A5A5A5A_u32);
 
     if !user_key.is_empty() {
-
-        for b in user_key
-            .as_bytes()
-            .iter()
-            .take(10)
-        {
-
-            context = (&context
-                * BigInt::from(31))
-                + BigInt::from(
-                    *b as u64,
-                );
+        for b in user_key.as_bytes().iter().take(10) {
+            context = (&context * BigInt::from(31)) + BigInt::from(*b as u64);
         }
 
-        context = context
-            % BigInt::from(
-                0xFFFFFFFF_u64,
-            );
+        context = context % BigInt::from(0xFFFFFFFF_u64);
     }
 
-    for (i, encrypted_expr) in
-        encrypted_exprs
-            .into_iter()
-            .enumerate()
-    {
-
+    for (i, encrypted_expr) in encrypted_exprs.into_iter().enumerate() {
         let mut real_roots = Vec::new();
 
-        let position_factor =
-            BigInt::from(
-                (i + 1) as u64,
-            );
+        let position_factor = BigInt::from((i + 1) as u64);
 
-        let mixing_val = (&context
-            * &position_factor)
-            % BigInt::from(
-                0xFFFFFF_u64,
-            );
+        let mixing_val = (&context * &position_factor) % BigInt::from(0xFFFFFF_u64);
 
         if i == 0 {
-
             log::info!(
                 "Chunk 0: context={}, \
                  pos_factor={}, \
@@ -185,38 +129,16 @@ pub async fn decrypt_surprise_logic(
         }
 
         // Strategy 1: BigInt-aware solver (exact for large integers, handles up to quadratic)
-        if let Some(root) =
-            try_solve_bigint(
-                &deriv,
-                &encrypted_expr,
-                &mixing_val,
-            )
-        {
-
+        if let Some(root) = try_solve_bigint(&deriv, &encrypted_expr, &mixing_val) {
             real_roots.push(root);
         } else {
-
             // Strategy 2: Standard solve (fallback)
-            let eq = Expr::new_sub(
-                deriv.clone(),
-                encrypted_expr.clone(),
-            );
+            let eq = Expr::new_sub(deriv.clone(), encrypted_expr.clone());
 
-            let solutions =
-                solve(&eq, "x");
+            let solutions = solve(&eq, "x");
 
             for sol in solutions {
-
-                let s = simplify(&sol)
-                    .to_ast()
-                    .unwrap_or_else(
-                        |_| {
-
-                            simplify(
-                                &sol,
-                            )
-                        },
-                    );
+                let s = simplify(&sol).to_ast().unwrap_or_else(|_| simplify(&sol));
 
                 match s {
                     | Expr::BigInt(n) => real_roots.push(n.clone()),
@@ -237,52 +159,37 @@ pub async fn decrypt_surprise_logic(
             }
         }
 
-        if let Some(p_mixed) =
-            real_roots.first()
-        {
-
+        if let Some(p_mixed) = real_roots.first() {
             // Reverse the context mixing to get original plaintext
             // Must match build.rs: p_mixed = p + ((context * position) % 0xFFFFFF)
-            let target_num =
-                p_mixed - &mixing_val;
+            let target_num = p_mixed - &mixing_val;
 
-            let mut bytes = target_num
-                .to_bytes_be()
-                .1;
+            let mut bytes = target_num.to_bytes_be().1;
 
             if !bytes.is_empty() {
-
                 bytes.remove(0); // Remove sentinel byte
-                full_message_bytes
-                    .extend(bytes);
+                full_message_bytes.extend(bytes);
             }
 
             // Update context to match encryption's context update
             // Must match build.rs exactly!
             let cipher_val_bigint = match &encrypted_expr {
-                Expr::BigInt(n) => n.clone(),
-                Expr::Constant(f) => {
+                | Expr::BigInt(n) => n.clone(),
+                | Expr::Constant(f) => {
                     // Convert float to BigInt (round to nearest integer)
                     BigInt::from(f.round() as i64)
                 },
-                Expr::Rational(r) => r.to_integer(),
-                _ => {
+                | Expr::Rational(r) => r.to_integer(),
+                | _ => {
                     log::warn!("Unexpected cipher_val type: {:?}, using 0", encrypted_expr);
                     BigInt::from(0)
-                }
+                },
             };
 
-            context = (&context
-                * BigInt::from(31))
-                + &cipher_val_bigint
-                + &position_factor;
+            context = (&context * BigInt::from(31)) + &cipher_val_bigint + &position_factor;
 
-            context = context
-                % BigInt::from(
-                    0xFFFFFFFF_u64,
-                );
+            context = context % BigInt::from(0xFFFFFFFF_u64);
         } else {
-
             log::warn!(
                 "Chunk {} could not \
                  be solved",
@@ -292,7 +199,6 @@ pub async fn decrypt_surprise_logic(
     }
 
     if full_message_bytes.is_empty() {
-
         return Err("No numerical \
                     solutions found \
                     for any chunk. \
@@ -301,52 +207,32 @@ pub async fn decrypt_surprise_logic(
             .to_string());
     }
 
-    let message =
-        String::from_utf8_lossy(
-            &full_message_bytes,
-        )
-        .to_string();
+    let message = String::from_utf8_lossy(&full_message_bytes).to_string();
 
     Ok(message)
 }
 
 #[server(DecryptSurprise, "/api")]
 
-pub async fn decrypt_surprise_server(
-    key: String
-) -> Result<String, ServerFnError> {
-
+pub async fn decrypt_surprise_server(key: String) -> Result<String, ServerFnError> {
     #[cfg(feature = "ssr")]
     {
-
         use crate::MODEL;
 
-        let raw_message =
-            decrypt_surprise_logic(
-                &key,
-            )
+        let raw_message = decrypt_surprise_logic(&key)
             .await
-            .map_err(|e| {
+            .map_err(|e| ServerFnError::new(e))?;
 
-                ServerFnError::new(e)
-            })?;
-
-        log::info!(
-            "Surprise decrypted: {}",
-            raw_message
-        );
+        log::info!("Surprise decrypted: {}", raw_message);
 
         // Attempt AI interpretation
         let model_arc = {
-
-            let model_lock =
-                MODEL.lock().await;
+            let model_lock = MODEL.lock().await;
 
             model_lock.clone()
         };
 
         if let Some(m) = model_arc {
-
             let prompt = format!(
                 "<|user|>\nYou are a \
                  helpful and creative \
@@ -371,37 +257,28 @@ pub async fn decrypt_surprise_server(
             let res = tokio::task::spawn_blocking(move || {
                 let mut model = m.lock().map_err(|e| anyhow::anyhow!("Lock error: {}", e))?;
                 model.complete(&prompt, 150, || false)
-            }).await.map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
+            })
+            .await
+            .map_err(|e| ServerFnError::new(format!("Join error: {}", e)))?;
 
             match res {
-                | Ok(
-                    interpretation,
-                ) => {
-                    Ok(interpretation
-                        .trim()
-                        .to_string())
-                },
+                | Ok(interpretation) => Ok(interpretation.trim().to_string()),
                 | Err(e) => {
-
                     log::error!("AI interpretation failed: {}", e);
 
                     Ok(raw_message)
                 },
             }
         } else {
-
             Ok(raw_message)
         }
     }
 
     #[cfg(not(feature = "ssr"))]
     {
-
         let _ = key;
 
-        Err(ServerFnError::new(
-            "Only available on SSR",
-        ))
+        Err(ServerFnError::new("Only available on SSR"))
     }
 }
 
@@ -411,31 +288,19 @@ pub fn SurpriseModal(
     show: Signal<bool>,
     on_close: Callback<()>,
 ) -> impl IntoView {
+    let (key_input, set_key_input) = signal("".to_string());
 
-    let (key_input, set_key_input) =
-        signal("".to_string());
+    let decrypt_action = Action::new(|key: &String| {
+        let key = key.clone();
 
-    let decrypt_action =
-        Action::new(|key: &String| {
-
-            let key = key.clone();
-
-            async move {
-
-                decrypt_surprise_server(
-                    key,
-                )
-                .await
-            }
-        });
+        async move { decrypt_surprise_server(key).await }
+    });
 
     let result = decrypt_action.value();
 
-    let pending =
-        decrypt_action.pending();
+    let pending = decrypt_action.pending();
 
-    view! {
-        <Show when=move || show.get()>
+    view! { <Show when=move || show.get()>
             <div class="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/40 backdrop-blur-md animate-fade-in" on:click=move |_| on_close.run(())>
                 <div class="glass-dark border border-white/10 rounded-[2.5rem] w-full max-w-lg shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] overflow-hidden animate-scale-in" on:click=|ev| ev.stop_propagation()>
                     <div class="px-8 py-6 border-b border-white/5 flex justify-between items-center">
@@ -468,9 +333,7 @@ pub fn SurpriseModal(
                                 class="w-full bg-black/40 border border-white/5 rounded-2xl px-6 py-4 text-white focus:ring-2 focus:ring-obsidian-accent/30 outline-none transition-all placeholder:text-white/5 text-center font-mono text-lg shadow-inner"
                                 on:input=move |ev| set_key_input.set(event_target_value(&ev))
                                 prop:value=key_input
-                                on:keydown=move |ev| {
-                                    if ev.key() == "Enter" {
-                                        let _ = decrypt_action.dispatch(key_input.get());
+                                on:keydown=move |ev| { if ev.key() == "Enter" { let _ = decrypt_action.dispatch(key_input.get());
                                     }
                                 }
                             />
@@ -489,9 +352,7 @@ pub fn SurpriseModal(
                         </div>
 
                         <Transition fallback=|| ()>
-                            {move || result.get().map(|res| match res {
-                                Ok(msg) => view! {
-                                    <div class="mt-8 p-8 bg-white/2 border border-obsidian-accent/20 rounded-3xl animate-scale-in relative group overflow-hidden">
+                            {move || result.get().map(|res| match res { Ok(msg) => view! { <div class="mt-8 p-8 bg-white/2 border border-obsidian-accent/20 rounded-3xl animate-scale-in relative group overflow-hidden">
                                         <div class="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-obsidian-accent to-transparent opacity-50"></div>
                                         <div class="text-[9px] font-black uppercase tracking-[0.3em] text-obsidian-accent/40 mb-4">"Interpreted Signal"</div>
                                         <p class="text-white leading-relaxed italic text-lg font-bold tracking-tight">"\"" {msg} "\""</p>
@@ -501,13 +362,10 @@ pub fn SurpriseModal(
                                             <div class="w-1 h-1 bg-obsidian-accent rounded-full animate-bounce delay-300"></div>
                                         </div>
                                     </div>
-                                }.into_any(),
-                                Err(e) => view! {
-                                    <div class="mt-8 p-4 bg-red-500/5 border border-red-500/10 rounded-2xl animate-shake">
+                                }.into_any(), Err(e) => view! { <div class="mt-8 p-4 bg-red-500/5 border border-red-500/10 rounded-2xl animate-shake">
                                         <p class="text-red-400 text-[11px] font-black uppercase tracking-wider">{e.to_string()}</p>
                                     </div>
-                                }.into_any(),
-                            })}
+                                }.into_any(), })}
                         </Transition>
                     </div>
                 </div>
@@ -523,7 +381,6 @@ fn is_fuzzy_equal(
     a: &Expr,
     b: &Expr,
 ) -> bool {
-
     use num_traits::ToPrimitive;
 
     // Collect leaf terms to handle structural differences (Add vs AddList, ordering, etc.)
@@ -533,214 +390,98 @@ fn is_fuzzy_equal(
         float_acc: &mut f64,
         sign: i32,
     ) -> bool {
-
         match e {
             | Expr::Add(l, r) => {
+                let a = collect_terms(l, big_acc, float_acc, sign);
 
-                let a = collect_terms(
-                    l,
-                    big_acc,
-                    float_acc,
-                    sign,
-                );
-
-                let b = collect_terms(
-                    r,
-                    big_acc,
-                    float_acc,
-                    sign,
-                );
+                let b = collect_terms(r, big_acc, float_acc, sign);
 
                 a || b
             },
             | Expr::Sub(l, r) => {
+                let a = collect_terms(l, big_acc, float_acc, sign);
 
-                let a = collect_terms(
-                    l,
-                    big_acc,
-                    float_acc,
-                    sign,
-                );
-
-                let b = collect_terms(
-                    r,
-                    big_acc,
-                    float_acc,
-                    -sign,
-                );
+                let b = collect_terms(r, big_acc, float_acc, -sign);
 
                 a || b
             },
             | Expr::AddList(list) => {
-
                 let mut shifted = false;
 
                 for item in list {
-
-                    if collect_terms(
-                        item,
-                        big_acc,
-                        float_acc,
-                        sign,
-                    ) {
-
+                    if collect_terms(item, big_acc, float_acc, sign) {
                         shifted = true;
                     }
                 }
 
                 shifted
             },
-            | Expr::Neg(inner) => {
-                collect_terms(
-                    inner,
-                    big_acc,
-                    float_acc,
-                    -sign,
-                )
-            },
+            | Expr::Neg(inner) => collect_terms(inner, big_acc, float_acc, -sign),
             | Expr::BigInt(n) => {
-
                 if sign > 0 {
-
                     *big_acc += n;
                 } else {
-
                     *big_acc -= n;
                 }
 
                 true
             },
             | Expr::Constant(f) => {
-
                 if sign > 0 {
-
                     *float_acc += f;
                 } else {
-
                     *float_acc -= f;
                 }
 
                 true
             },
             | Expr::Mul(_l, _r) => {
-
                 // If it's a Mul, we can't easily flatten, but we can try to eval it
                 // This is needed if force_bigint failed to fold it.
-                if let Some(f) =
-                    try_eval_f(e)
-                {
-
+                if let Some(f) = try_eval_f(e) {
                     if sign > 0 {
-
                         *float_acc += f;
                     } else {
-
                         *float_acc -= f;
                     }
 
                     true
                 } else {
-
                     false
                 }
             },
             | _ => {
-
-                if let Some(f) =
-                    try_eval_f(e)
-                {
-
+                if let Some(f) = try_eval_f(e) {
                     if sign > 0 {
-
                         *float_acc += f;
                     } else {
-
                         *float_acc -= f;
                     }
 
                     true
                 } else {
-
                     false
                 }
             },
         }
     }
 
-    fn try_eval_f(
-        e: &Expr
-    ) -> Option<f64> {
-
+    fn try_eval_f(e: &Expr) -> Option<f64> {
         match e {
-            | Expr::BigInt(b) => {
-                b.to_f64()
-            },
-            | Expr::Constant(f) => {
-                Some(*f)
-            },
-            | Expr::Mul(l, r) => {
-                try_eval_f(l).and_then(
-                    |la| {
-
-                        try_eval_f(r)
-                            .map(|lb| {
-
-                                la * lb
-                            })
-                    },
-                )
-            },
-            | Expr::Power(l, r) => {
-                try_eval_f(l).and_then(
-                    |la| {
-
-                        try_eval_f(r)
-                            .map(|lb| {
-
-                                la.powf(
-                                    lb,
-                                )
-                            })
-                    },
-                )
-            },
-            | Expr::Div(l, r) => {
-                try_eval_f(l).and_then(
-                    |la| {
-
-                        try_eval_f(r)
-                            .map(|lb| {
-
-                                la / lb
-                            })
-                    },
-                )
-            },
-            | Expr::Sin(a) => {
-                try_eval_f(a)
-                    .map(|v| v.sin())
-            },
-            | Expr::Cos(a) => {
-                try_eval_f(a)
-                    .map(|v| v.cos())
-            },
-            | Expr::Abs(a) => {
-                try_eval_f(a)
-                    .map(|v| v.abs())
-            },
-            | Expr::Sqrt(a) => {
-                try_eval_f(a)
-                    .map(|v| v.sqrt())
-            },
+            | Expr::BigInt(b) => b.to_f64(),
+            | Expr::Constant(f) => Some(*f),
+            | Expr::Mul(l, r) => try_eval_f(l).and_then(|la| try_eval_f(r).map(|lb| la * lb)),
+            | Expr::Power(l, r) => try_eval_f(l).and_then(|la| try_eval_f(r).map(|lb| la.powf(lb))),
+            | Expr::Div(l, r) => try_eval_f(l).and_then(|la| try_eval_f(r).map(|lb| la / lb)),
+            | Expr::Sin(a) => try_eval_f(a).map(|v| v.sin()),
+            | Expr::Cos(a) => try_eval_f(a).map(|v| v.cos()),
+            | Expr::Abs(a) => try_eval_f(a).map(|v| v.abs()),
+            | Expr::Sqrt(a) => try_eval_f(a).map(|v| v.sqrt()),
             | Expr::AddList(list) => {
-
                 let mut sum = 0.0;
 
                 for item in list {
-
-                    sum += try_eval_f(
-                        item,
-                    )?;
+                    sum += try_eval_f(item)?;
                 }
 
                 Some(sum)
@@ -757,55 +498,33 @@ fn is_fuzzy_equal(
 
     let mut float_b = 0.0;
 
-    let has_a = collect_terms(
-        a,
-        &mut big_a,
-        &mut float_a,
-        1,
-    );
+    let has_a = collect_terms(a, &mut big_a, &mut float_a, 1);
 
-    let has_b = collect_terms(
-        b,
-        &mut big_b,
-        &mut float_b,
-        1,
-    );
+    let has_b = collect_terms(b, &mut big_b, &mut float_b, 1);
 
     if !has_a || !has_b {
-
         return a == b; // Fallback to strict equality if we couldn't even collect terms
     }
 
     // Compare BigInt parts
     if big_a != big_b {
-
         // If they differ, check if the difference can be absorbed by the float part
         let diff = &big_a - &big_b;
 
-        if let Some(d_f) = diff.to_f64()
-        {
-
+        if let Some(d_f) = diff.to_f64() {
             float_a += d_f;
         } else {
-
             return false;
         }
     }
 
     // Compare float parts with robust tolerance
-    let diff =
-        (float_a - float_b).abs();
+    let diff = (float_a - float_b).abs();
 
-    if float_a.abs() < 1.0
-        && float_b.abs() < 1.0
-    {
-
+    if float_a.abs() < 1.0 && float_b.abs() < 1.0 {
         diff < 1e-4
     } else {
-
-        let max_val = float_a
-            .abs()
-            .max(float_b.abs());
+        let max_val = float_a.abs().max(float_b.abs());
 
         diff / max_val < 1e-11
     }
@@ -818,7 +537,6 @@ fn try_solve_bigint(
     target: &Expr,
     offset: &BigInt,
 ) -> Option<BigInt> {
-
     use num_bigint::BigInt;
     use num_traits::Signed;
     use rssn::symbolic::calculus::substitute;
@@ -830,47 +548,27 @@ fn try_solve_bigint(
     );
 
     // Pre-simplify the derivative to speed up substitution in the loop
-    let simplified_deriv =
-        simplify(deriv)
-            .to_ast()
-            .unwrap_or(deriv.clone());
+    let simplified_deriv = simplify(deriv).to_ast().unwrap_or(deriv.clone());
 
     use rayon::prelude::*;
 
     // Parallel brute-force search
     // We can search the range [0, 255] in parallel
-    let result = (0 ..= 255)
-        .into_par_iter()
-        .find_map_any(|val| {
+    let result = (0..=255).into_par_iter().find_map_any(|val| {
+        let x_guess = BigInt::from(256 + val) + offset; // range [256+offset, 511+offset]
 
-            let x_guess =
-                BigInt::from(256 + val)
-                    + offset; // range [256+offset, 511+offset]
+        let eval_expr = substitute(&simplified_deriv, "x", &Expr::BigInt(x_guess.clone()));
 
-            let eval_expr = substitute(
-                &simplified_deriv,
-                "x",
-                &Expr::BigInt(
-                    x_guess.clone(),
-                ),
-            );
+        let eval_res = force_bigint(eval_expr);
 
-            let eval_res =
-                force_bigint(eval_expr);
+        if is_fuzzy_equal(&eval_res, target) {
+            return Some(x_guess);
+        }
 
-            if is_fuzzy_equal(
-                &eval_res,
-                target,
-            ) {
-
-                return Some(x_guess);
-            }
-
-            None
-        });
+        None
+    });
 
     if result.is_some() {
-
         return result;
     }
 
@@ -880,38 +578,21 @@ fn try_solve_bigint(
     );
 
     // Fallback search for larger ranges if needed (e.g. 2-byte chunks)
-    let result_large = (0 ..= 65535)
-        .into_par_iter()
-        .find_map_any(|val| {
+    let result_large = (0..=65535).into_par_iter().find_map_any(|val| {
+        let x_guess = BigInt::from(65536 + val) + offset;
 
-            let x_guess = BigInt::from(
-                65536 + val,
-            ) + offset;
+        let eval_expr = substitute(&simplified_deriv, "x", &Expr::BigInt(x_guess.clone()));
 
-            let eval_expr = substitute(
-                &simplified_deriv,
-                "x",
-                &Expr::BigInt(
-                    x_guess.clone(),
-                ),
-            );
+        let eval_res = force_bigint(eval_expr);
 
-            let eval_res =
-                force_bigint(eval_expr);
+        if is_fuzzy_equal(&eval_res, target) {
+            return Some(x_guess);
+        }
 
-            if is_fuzzy_equal(
-                &eval_res,
-                target,
-            ) {
-
-                return Some(x_guess);
-            }
-
-            None
-        });
+        None
+    });
 
     if result_large.is_some() {
-
         return result_large;
     }
 
@@ -926,10 +607,7 @@ fn try_solve_bigint(
 
 #[cfg(feature = "ssr")]
 
-fn force_bigint(
-    root_expr: Expr
-) -> Expr {
-
+fn force_bigint(root_expr: Expr) -> Expr {
     use std::sync::Arc;
 
     use num_traits::Signed;
@@ -938,129 +616,155 @@ fn force_bigint(
     use rssn::symbolic::core::Expr;
 
     // We start by unwrapping the AST if needed
-    let root = root_expr
-        .to_ast()
-        .unwrap_or(root_expr.clone());
+    let root = root_expr.to_ast().unwrap_or(root_expr.clone());
 
     // Helper to extract float value for approximate evaluation
-    let try_eval_float =
-        |e: &Expr| -> Option<f64> {
-
-            match e {
-                | Expr::Constant(f) => {
-                    Some(*f)
-                },
-                | Expr::BigInt(b) => {
-                    b.to_f64()
-                },
-                | _ => None,
-            }
-        };
+    let try_eval_float = |e: &Expr| -> Option<f64> {
+        match e {
+            | Expr::Constant(f) => Some(*f),
+            | Expr::BigInt(b) => b.to_f64(),
+            | _ => None,
+        }
+    };
 
     // Stack for post-order traversal simulation
     // (Node, visited_children)
     // If visited_children is true, we pop input from output stack and compute
-    let mut visit_stack =
-        vec![(root, false)];
+    let mut visit_stack = vec![(root, false)];
 
-    let mut output_stack: Vec<Expr> =
-        Vec::new();
+    let mut output_stack: Vec<Expr> = Vec::new();
 
-    while let Some((expr, visited)) =
-        visit_stack.pop()
-    {
-
+    while let Some((expr, visited)) = visit_stack.pop() {
         if visited {
-
             // Children have been processed and are on output_stack.
             // Reconstruct and optimize.
             match expr {
-                Expr::Add(_, _) => {
+                | Expr::Add(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la + lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la + lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             // If BigInt is very large, keep separate to preserve precision
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Add(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Add(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Add(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Add(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Sub(_, _) => {
+                | Expr::Sub(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la - lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la - lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Sub(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Sub(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Sub(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Sub(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Mul(_, _) => {
+                | Expr::Mul(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la * lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la * lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Mul(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Mul(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Mul(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Mul(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Div(_, _) => {
+                | Expr::Div(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) if !lb.is_zero() && &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))), // Handle div by zero? Rust f64 handles inf.
-                        (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
+                        | (Expr::BigInt(la), Expr::BigInt(lb))
+                            if !lb.is_zero() && &la % &lb == BigInt::from(0) =>
+                        {
+                            output_stack.push(Expr::BigInt(la / lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la / lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb))
+                        },
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0)))
+                        }, // Handle div by zero? Rust f64 handles inf.
+                        | (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::Power(_, _) => {
+                | Expr::Power(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     match (lhs, rhs) {
-                        (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                        | (Expr::BigInt(base), Expr::BigInt(exp)) => {
                             if let Some(e) = exp.to_u32() {
                                 output_stack.push(Expr::BigInt(base.pow(e)));
                             } else if exp == BigInt::from(0) {
@@ -1069,28 +773,37 @@ fn force_bigint(
                                 // Fallback to float if exponential is too large?
                                 // Or symbolic.
                                 // Let's keep existing logic for pure BigInt, but add float fallback
-                                output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
+                                output_stack.push(Expr::Power(
+                                    Arc::new(Expr::BigInt(base)),
+                                    Arc::new(Expr::BigInt(exp)),
+                                ));
                             }
-                        }
-                        (Expr::Constant(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.powf(e))),
-                        (Expr::BigInt(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e))),
-                        (Expr::Constant(b), Expr::BigInt(e)) => output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0)))),
-                        (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
+                        },
+                        | (Expr::Constant(b), Expr::Constant(e)) => {
+                            output_stack.push(Expr::Constant(b.powf(e)))
+                        },
+                        | (Expr::BigInt(b), Expr::Constant(e)) => {
+                            output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e)))
+                        },
+                        | (Expr::Constant(b), Expr::BigInt(e)) => {
+                            output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0))))
+                        },
+                        | (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
                     }
                 },
-                Expr::LogBase(_, _) => {
+                | Expr::LogBase(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Neg(_) => {
+                | Expr::Neg(_) => {
                     let inner = output_stack.pop().unwrap();
                     match inner {
-                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
-                        other => output_stack.push(Expr::Neg(Arc::new(other))),
+                        | Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
+                        | other => output_stack.push(Expr::Neg(Arc::new(other))),
                     }
                 },
-                Expr::Sin(_) => {
+                | Expr::Sin(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.sin()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1102,7 +815,7 @@ fn force_bigint(
                         output_stack.push(Expr::Sin(Arc::new(v)));
                     }
                 },
-                Expr::Cos(_) => {
+                | Expr::Cos(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.cos()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1114,7 +827,7 @@ fn force_bigint(
                         output_stack.push(Expr::Cos(Arc::new(v)));
                     }
                 },
-                Expr::Tan(_) => {
+                | Expr::Tan(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.tan()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1126,7 +839,7 @@ fn force_bigint(
                         output_stack.push(Expr::Tan(Arc::new(v)));
                     }
                 },
-                Expr::Exp(_) => {
+                | Expr::Exp(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.exp()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1138,7 +851,7 @@ fn force_bigint(
                         output_stack.push(Expr::Exp(Arc::new(v)));
                     }
                 },
-                Expr::Log(_) => {
+                | Expr::Log(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.ln()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1150,15 +863,15 @@ fn force_bigint(
                         output_stack.push(Expr::Log(Arc::new(v)));
                     }
                 },
-                Expr::Abs(_) => {
+                | Expr::Abs(_) => {
                     let v = output_stack.pop().unwrap();
                     match v {
-                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
-                        Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
-                        _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                        | Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                        | Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
+                        | _ => output_stack.push(Expr::Abs(Arc::new(v))),
                     }
                 },
-                Expr::Sqrt(_) => {
+                | Expr::Sqrt(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.sqrt()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -1170,7 +883,7 @@ fn force_bigint(
                         output_stack.push(Expr::Sqrt(Arc::new(v)));
                     }
                 },
-                Expr::AddList(list) => {
+                | Expr::AddList(list) => {
                     let len = list.len();
                     // Items are stuck on output stack in reverse order of processing?
                     // We pushed children in reverse order so they were popped in order.
@@ -1187,7 +900,7 @@ fn force_bigint(
                     new_list.reverse();
                     output_stack.push(Expr::AddList(new_list));
                 },
-                Expr::MulList(list) => {
+                | Expr::MulList(list) => {
                     let len = list.len();
                     let mut new_list = Vec::with_capacity(len);
                     for _ in 0..len {
@@ -1195,26 +908,24 @@ fn force_bigint(
                     }
                     new_list.reverse();
                     output_stack.push(Expr::MulList(new_list));
-                },
-                // Leaves already handled when !visited
-                _ => unreachable!("Should not visit leaves in post-process"),
+                }, // Leaves already handled when !visited
+                | _ => unreachable!("Should not visit leaves in post-process"),
             }
         } else {
-
             // First time seeing this node.
             // Check if it's a leaf that we can process immediately
             let processed_leaf = match &expr {
-                Expr::Constant(f) if f.fract() == 0.0 => Some(Expr::BigInt(num_bigint::BigInt::from(*f as i64))),
-                Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())),
-                // Other leaves pass through
-                Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => Some(expr.clone()),
-                _ => None,
+                | Expr::Constant(f) if f.fract() == 0.0 => {
+                    Some(Expr::BigInt(num_bigint::BigInt::from(*f as i64)))
+                },
+                | Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())), /* Other leaves pass through */
+                | Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => {
+                    Some(expr.clone())
+                },
+                | _ => None,
             };
 
-            if let Some(leaf) =
-                processed_leaf
-            {
-
+            if let Some(leaf) = processed_leaf {
                 output_stack.push(leaf);
 
                 continue;
@@ -1239,43 +950,20 @@ fn force_bigint(
                 | Expr::Mul(a, b)
                 | Expr::Div(a, b)
                 | Expr::Power(a, b)
-                | Expr::LogBase(
-                    a,
-                    b,
-                ) => {
-
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
+                | Expr::LogBase(a, b) => {
+                    visit_stack.push((expr.clone(), true));
 
                     let b = b.as_ref();
 
                     let a = a.as_ref();
 
-                    let b_expr = b
-                        .clone()
-                        .to_ast()
-                        .unwrap_or(
-                            b.clone(),
-                        );
+                    let b_expr = b.clone().to_ast().unwrap_or(b.clone());
 
-                    let a_expr = a
-                        .clone()
-                        .to_ast()
-                        .unwrap_or(
-                            a.clone(),
-                        );
+                    let a_expr = a.clone().to_ast().unwrap_or(a.clone());
 
-                    visit_stack.push((
-                        b_expr,
-                        false,
-                    ));
+                    visit_stack.push((b_expr, false));
 
-                    visit_stack.push((
-                        a_expr,
-                        false,
-                    ));
+                    visit_stack.push((a_expr, false));
                 },
                 | Expr::Neg(a)
                 | Expr::Sin(a)
@@ -1285,37 +973,16 @@ fn force_bigint(
                 | Expr::Log(a)
                 | Expr::Abs(a)
                 | Expr::Sqrt(a) => {
-
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
+                    visit_stack.push((expr.clone(), true));
 
                     let a = a.as_ref();
 
-                    let a_expr = a
-                        .clone()
-                        .to_ast()
-                        .unwrap_or(
-                            a.clone(),
-                        );
+                    let a_expr = a.clone().to_ast().unwrap_or(a.clone());
 
-                    visit_stack.push((
-                        a_expr,
-                        false,
-                    ));
+                    visit_stack.push((a_expr, false));
                 },
-                | Expr::AddList(
-                    list,
-                )
-                | Expr::MulList(
-                    list,
-                ) => {
-
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
+                | Expr::AddList(list) | Expr::MulList(list) => {
+                    visit_stack.push((expr.clone(), true));
 
                     // We want results [0, 1, 2].
                     // If we push 2, 1, 0.
@@ -1325,32 +992,21 @@ fn force_bigint(
 
                     // So we push in reverse order (e.g. 5, 4... 0).
                     // Iterator is 0..N. .rev() gives N-1..0.
-                    for item in list
-                        .iter()
-                        .rev()
-                    {
-
+                    for item in list.iter().rev() {
                         let it = item.clone().to_ast().unwrap_or(item.clone());
 
-                        visit_stack
-                            .push((
-                                it,
-                                false,
-                            ));
+                        visit_stack.push((it, false));
                     }
                 },
                 | _ => {
-
                     unreachable!(
-                    "Leaves handled \
+                        "Leaves handled \
                      above"
-                )
+                    )
                 },
             }
         }
     }
 
-    output_stack
-        .pop()
-        .unwrap_or(root_expr) // Should be exactly one item if logic holds
+    output_stack.pop().unwrap_or(root_expr) // Should be exactly one item if logic holds
 }

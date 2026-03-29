@@ -71,7 +71,6 @@ pub struct Config {
 
 impl Config {
     pub fn gemma3_270m() -> Self {
-
         Self {
             vocab_size: 262144,
             hidden_size: 640,
@@ -82,8 +81,7 @@ impl Config {
             head_dim: 256,
             rms_norm_eps: 1e-6,
             rope_theta: 10000.0,
-            max_position_embeddings:
-                8192,
+            max_position_embeddings: 8192,
         }
     }
 }
@@ -100,15 +98,9 @@ impl QLinear {
     #[allow(clippy::inline_always)]
     #[inline(always)]
 
-    fn new(
-        tensor: candle_core::quantized::QTensor
-    ) -> Result<Self> {
-
+    fn new(tensor: candle_core::quantized::QTensor) -> Result<Self> {
         Ok(Self {
-            inner:
-                QMatMul::from_qtensor(
-                    tensor,
-                )?,
+            inner: QMatMul::from_qtensor(tensor)?,
         })
     }
 
@@ -119,9 +111,7 @@ impl QLinear {
         &self,
         xs: &Tensor,
     ) -> Result<Tensor> {
-
-        self.inner
-            .forward(xs)
+        self.inner.forward(xs)
     }
 }
 
@@ -140,25 +130,12 @@ impl RmsNorm {
         weight: Tensor,
         eps: f64,
     ) -> Self {
-
-        let weight_data = if weight
-            .device()
-            .is_cpu()
-        {
-
+        let weight_data = if weight.device().is_cpu() {
             weight
                 .to_dtype(DType::F32)
                 .ok()
-                .and_then(|t| {
-
-                    t.flatten_all()
-                        .ok()?
-                        .to_vec1::<f32>(
-                        )
-                        .ok()
-                })
+                .and_then(|t| t.flatten_all().ok()?.to_vec1::<f32>().ok())
         } else {
-
             None
         };
 
@@ -173,40 +150,31 @@ impl RmsNorm {
         &self,
         x: &Tensor,
     ) -> Result<Tensor> {
-
         let x_dtype = x.dtype();
 
-        let hidden_size =
-            x.dim(D::Minus1)?;
+        let hidden_size = x.dim(D::Minus1)?;
 
         // Performance optimization:
         // If we are on CPU and using F32, we can use pulp to compute RMS in a single pass
         // instead of multiple intermediate tensors (sqr, sum, div, sqrt, etc.)
-        if x.device().is_cpu()
-            && x_dtype == DType::F32
-            && self
-                .weight_data
-                .is_some()
-        {
-
+        if x.device().is_cpu() && x_dtype == DType::F32 && self.weight_data.is_some() {
             let dims = x.dims();
 
-            let weight_vec = self
-                .weight_data
-                .as_ref()
-                .unwrap();
+            let weight_vec = self.weight_data.as_ref().unwrap();
 
             // Try to avoid copy by accessing storage directly if possible
-            let (storage, layout) =
-                x.storage_and_layout();
+            let (storage, layout) = x.storage_and_layout();
 
             if let candle_core::Storage::Cpu(cpu) = &*storage {
                 if layout.is_contiguous() {
                     let full_slice = cpu.as_slice::<f32>()?;
-                    let x_slice = &full_slice[layout.start_offset()..layout.start_offset() + layout.shape().elem_count()];
+                    let x_slice = &full_slice[layout.start_offset()
+                        ..layout.start_offset() + layout.shape().elem_count()];
 
                     let mut result_vec = Vec::<f32>::with_capacity(x_slice.len());
-                    unsafe { result_vec.set_len(x_slice.len()); }
+                    unsafe {
+                        result_vec.set_len(x_slice.len());
+                    }
                     let arch = Arch::new();
 
                     let hidden_size = *dims.last().unwrap();
@@ -217,27 +185,36 @@ impl RmsNorm {
                         let process_row = |(row, res_row): (&[f32], &mut [f32])| {
                             let mut sum_sq = 0.0f32;
                             for chunk in row.chunks_exact(8) {
-                                sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
-                                          chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                                sum_sq += chunk[0] * chunk[0]
+                                    + chunk[1] * chunk[1]
+                                    + chunk[2] * chunk[2]
+                                    + chunk[3] * chunk[3]
+                                    + chunk[4] * chunk[4]
+                                    + chunk[5] * chunk[5]
+                                    + chunk[6] * chunk[6]
+                                    + chunk[7] * chunk[7];
                             }
                             for &val in row.chunks_exact(8).remainder() {
                                 sum_sq += val * val;
                             }
 
-                            let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                            let inv_norm =
+                                1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
                             for i in 0..hidden_size {
                                 res_row[i] = row[i] * inv_norm * weight_vec[i];
                             }
                         };
 
                         if num_rows > 1 {
-                             x_slice.par_chunks_exact(hidden_size)
-                                 .zip(result_vec.par_chunks_exact_mut(hidden_size))
-                                 .for_each(process_row);
+                            x_slice
+                                .par_chunks_exact(hidden_size)
+                                .zip(result_vec.par_chunks_exact_mut(hidden_size))
+                                .for_each(process_row);
                         } else {
-                             x_slice.chunks_exact(hidden_size)
-                                 .zip(result_vec.chunks_exact_mut(hidden_size))
-                                 .for_each(process_row);
+                            x_slice
+                                .chunks_exact(hidden_size)
+                                .zip(result_vec.chunks_exact_mut(hidden_size))
+                                .for_each(process_row);
                         }
                     });
 
@@ -248,32 +225,30 @@ impl RmsNorm {
             // Fallback to to_vec1 (which copies from GPU/complex layout) if storage access failed
             let dims = x.dims();
 
-            let weight_vec = self
-                .weight_data
-                .as_ref()
-                .unwrap();
+            let weight_vec = self.weight_data.as_ref().unwrap();
 
-            let mut result = x
-                .flatten_all()?
-                .to_vec1::<f32>()?;
+            let mut result = x.flatten_all()?.to_vec1::<f32>()?;
 
             let arch = Arch::new();
 
-            let hidden_size =
-                *dims.last().unwrap();
+            let hidden_size = *dims.last().unwrap();
 
-            let num_elements =
-                result.len();
+            let num_elements = result.len();
 
-            let num_rows = num_elements
-                / hidden_size;
+            let num_rows = num_elements / hidden_size;
 
             arch.dispatch(|| {
                 let process_row = |(row, res_row): (&[f32], &mut [f32])| {
                     let mut sum_sq = 0.0f32;
                     for chunk in row.chunks_exact(8) {
-                        sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
-                                  chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                        sum_sq += chunk[0] * chunk[0]
+                            + chunk[1] * chunk[1]
+                            + chunk[2] * chunk[2]
+                            + chunk[3] * chunk[3]
+                            + chunk[4] * chunk[4]
+                            + chunk[5] * chunk[5]
+                            + chunk[6] * chunk[6]
+                            + chunk[7] * chunk[7];
                     }
                     for &val in row.chunks_exact(8).remainder() {
                         sum_sq += val * val;
@@ -286,27 +261,42 @@ impl RmsNorm {
                 };
 
                 if num_rows > 1 {
-                    result.par_chunks_exact_mut(hidden_size).for_each(|res_row| {
-                        let mut sum_sq = 0.0f32;
-                        for chunk in res_row.chunks_exact(8) {
-                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
-                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
-                        }
-                        for &val in res_row.chunks_exact(8).remainder() {
-                            sum_sq += val * val;
-                        }
+                    result
+                        .par_chunks_exact_mut(hidden_size)
+                        .for_each(|res_row| {
+                            let mut sum_sq = 0.0f32;
+                            for chunk in res_row.chunks_exact(8) {
+                                sum_sq += chunk[0] * chunk[0]
+                                    + chunk[1] * chunk[1]
+                                    + chunk[2] * chunk[2]
+                                    + chunk[3] * chunk[3]
+                                    + chunk[4] * chunk[4]
+                                    + chunk[5] * chunk[5]
+                                    + chunk[6] * chunk[6]
+                                    + chunk[7] * chunk[7];
+                            }
+                            for &val in res_row.chunks_exact(8).remainder() {
+                                sum_sq += val * val;
+                            }
 
-                        let inv_norm = 1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
-                        for i in 0..hidden_size {
-                            res_row[i] = res_row[i] * inv_norm * weight_vec[i];
-                        }
-                    });
+                            let inv_norm =
+                                1.0 / (sum_sq / hidden_size as f32 + self.eps as f32).sqrt();
+                            for i in 0..hidden_size {
+                                res_row[i] = res_row[i] * inv_norm * weight_vec[i];
+                            }
+                        });
                 } else {
                     result.chunks_exact_mut(hidden_size).for_each(|res_row| {
                         let mut sum_sq = 0.0f32;
                         for chunk in res_row.chunks_exact(8) {
-                            sum_sq += chunk[0] * chunk[0] + chunk[1] * chunk[1] + chunk[2] * chunk[2] + chunk[3] * chunk[3] +
-                                      chunk[4] * chunk[4] + chunk[5] * chunk[5] + chunk[6] * chunk[6] + chunk[7] * chunk[7];
+                            sum_sq += chunk[0] * chunk[0]
+                                + chunk[1] * chunk[1]
+                                + chunk[2] * chunk[2]
+                                + chunk[3] * chunk[3]
+                                + chunk[4] * chunk[4]
+                                + chunk[5] * chunk[5]
+                                + chunk[6] * chunk[6]
+                                + chunk[7] * chunk[7];
                         }
                         for &val in res_row.chunks_exact(8).remainder() {
                             sum_sq += val * val;
@@ -320,40 +310,22 @@ impl RmsNorm {
                 }
             });
 
-            return Tensor::from_vec(
-                result,
-                dims,
-                x.device(),
-            );
+            return Tensor::from_vec(result, dims, x.device());
         }
 
         // Fallback for other dtypes/devices
-        let internal_dtype =
-            match x_dtype {
-                | DType::F16
-                | DType::BF16 => {
-                    DType::F32
-                },
-                | d => d,
-            };
+        let internal_dtype = match x_dtype {
+            | DType::F16 | DType::BF16 => DType::F32,
+            | d => d,
+        };
 
-        let x =
-            x.to_dtype(internal_dtype)?;
+        let x = x.to_dtype(internal_dtype)?;
 
-        let norm_x = (x
-            .sqr()?
-            .sum_keepdim(D::Minus1)?
-            / hidden_size as f64)?;
+        let norm_x = (x.sqr()?.sum_keepdim(D::Minus1)? / hidden_size as f64)?;
 
-        let x_normed = x
-            .broadcast_div(
-                &(norm_x + self.eps)?
-                    .sqrt()?,
-            )?;
+        let x_normed = x.broadcast_div(&(norm_x + self.eps)?.sqrt()?)?;
 
-        x_normed
-            .to_dtype(x_dtype)?
-            .broadcast_mul(&self.weight)
+        x_normed.to_dtype(x_dtype)?.broadcast_mul(&self.weight)
     }
 }
 
@@ -367,7 +339,6 @@ impl Module for RmsNorm {
         &self,
         x: &Tensor,
     ) -> Result<Tensor> {
-
         self.forward(x)
     }
 }
@@ -388,54 +359,28 @@ impl RotaryEmbedding {
         base: f64,
         dev: &Device,
     ) -> Result<Self> {
-
         let dim = cfg.head_dim;
 
-        let max_seq_len =
-            cfg.max_position_embeddings;
+        let max_seq_len = cfg.max_position_embeddings;
 
-        let inv_freq: Vec<_> = (0
-            .. dim)
+        let inv_freq: Vec<_> = (0..dim)
             .step_by(2)
-            .map(|i| {
-
-                1f32 / base.powf(
-                    i as f64
-                        / dim as f64,
-                )
-                    as f32
-            })
+            .map(|i| 1f32 / base.powf(i as f64 / dim as f64) as f32)
             .collect();
 
-        let inv_freq_len =
-            inv_freq.len();
+        let inv_freq_len = inv_freq.len();
 
-        let inv_freq =
-            Tensor::from_vec(
-                inv_freq,
-                (1, inv_freq_len),
-                dev,
-            )?
-            .to_dtype(dtype)?;
+        let inv_freq = Tensor::from_vec(inv_freq, (1, inv_freq_len), dev)?.to_dtype(dtype)?;
 
-        let t = Tensor::arange(
-            0u32,
-            max_seq_len as u32,
-            dev,
-        )?
-        .to_dtype(dtype)?
-        .reshape((max_seq_len, 1))?;
+        let t = Tensor::arange(0u32, max_seq_len as u32, dev)?
+            .to_dtype(dtype)?
+            .reshape((max_seq_len, 1))?;
 
-        let freqs =
-            t.matmul(&inv_freq)?;
+        let freqs = t.matmul(&inv_freq)?;
 
         Ok(Self {
-            sin: freqs
-                .sin()?
-                .contiguous()?,
-            cos: freqs
-                .cos()?
-                .contiguous()?,
+            sin: freqs.sin()?.contiguous()?,
+            cos: freqs.cos()?.contiguous()?,
         })
     }
 
@@ -445,32 +390,16 @@ impl RotaryEmbedding {
         k: &Tensor,
         seqlen_offset: usize,
     ) -> Result<(Tensor, Tensor)> {
-
         let (b, h, s, d) = q.dims4()?;
 
-        let cos = self.cos.narrow(
-            0,
-            seqlen_offset,
-            s,
-        )?;
+        let cos = self.cos.narrow(0, seqlen_offset, s)?;
 
-        let sin = self.sin.narrow(
-            0,
-            seqlen_offset,
-            s,
-        )?;
+        let sin = self.sin.narrow(0, seqlen_offset, s)?;
 
-        let (q_embed, k_embed) =
-            rayon::join(
-                || {
-
-                    candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin)
-                },
-                || {
-
-                    candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin)
-                },
-            );
+        let (q_embed, k_embed) = rayon::join(
+            || candle_nn::rotary_emb::rope(&q.contiguous()?, &cos, &sin),
+            || candle_nn::rotary_emb::rope(&k.contiguous()?, &cos, &sin),
+        );
 
         Ok((q_embed?, k_embed?))
     }
@@ -491,19 +420,7 @@ impl MLP {
         &self,
         xs: &Tensor,
     ) -> Result<Tensor> {
-
-        let (gate, up) = rayon::join(
-            || {
-
-                self.gate_proj
-                    .forward(xs)
-            },
-            || {
-
-                self.up_proj
-                    .forward(xs)
-            },
-        );
+        let (gate, up) = rayon::join(|| self.gate_proj.forward(xs), || self.up_proj.forward(xs));
 
         let mut gate = gate?;
 
@@ -512,60 +429,54 @@ impl MLP {
         // Optimization: In-place Gelu and Multiplication
         // This avoids two intermediate tensor allocations (Gelu result and Mul result)
         // and combines two passes into one SIMD-accelerated pass.
-        if gate
-            .device()
-            .is_cpu()
-            && gate.dtype()
-                == DType::F32
-            && up.dtype() == DType::F32
-        {
+        if gate.device().is_cpu() && gate.dtype() == DType::F32 && up.dtype() == DType::F32 {
+            let (g_storage, g_layout) = gate.storage_and_layout();
 
-            let (g_storage, g_layout) =
-                gate.storage_and_layout(
-                );
+            let (u_storage, u_layout) = up.storage_and_layout();
 
-            let (u_storage, u_layout) =
-                up.storage_and_layout();
+            if let (candle_core::Storage::Cpu(g_cpu), candle_core::Storage::Cpu(u_cpu)) =
+                (&*g_storage, &*u_storage)
+            {
+                if g_layout.is_contiguous() && u_layout.is_contiguous() {
+                    // We need to be careful with mutation in candle.
+                    // Since we have ownership of 'gate' (it's a new tensor from projection), we can mutate its storage.
+                    // However, candle doesn't give us a &mut [f32] easily.
+                    // We'll use unsafe to get a mutable pointer to the storage we own.
+                    let g_ptr = g_cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
+                    let u_ptr = u_cpu.as_slice::<f32>()?.as_ptr();
+                    let len = g_layout.shape().elem_count();
 
-            if let (candle_core::Storage::Cpu(g_cpu), candle_core::Storage::Cpu(u_cpu)) = (&*g_storage, &*u_storage) {
-                 if g_layout.is_contiguous() && u_layout.is_contiguous() {
-                     // We need to be careful with mutation in candle. 
-                     // Since we have ownership of 'gate' (it's a new tensor from projection), we can mutate its storage.
-                     // However, candle doesn't give us a &mut [f32] easily. 
-                     // We'll use unsafe to get a mutable pointer to the storage we own.
-                     let g_ptr = g_cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
-                     let u_ptr = u_cpu.as_slice::<f32>()?.as_ptr();
-                     let len = g_layout.shape().elem_count();
+                    let arch = Arch::new();
+                    arch.dispatch(|| {
+                        unsafe {
+                            let g_slice = std::slice::from_raw_parts_mut(
+                                g_ptr.add(g_layout.start_offset()),
+                                len,
+                            );
+                            let u_slice =
+                                std::slice::from_raw_parts(u_ptr.add(u_layout.start_offset()), len);
 
-                     let arch = Arch::new();
-                     arch.dispatch(|| {
-                         unsafe {
-                             let g_slice = std::slice::from_raw_parts_mut(g_ptr.add(g_layout.start_offset()), len);
-                             let u_slice = std::slice::from_raw_parts(u_ptr.add(u_layout.start_offset()), len);
+                            // NewGelu approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
+                            const SQRT_2_PI: f32 = 0.79788456;
+                            for i in 0..len {
+                                let x = g_slice[i];
+                                let x3 = x * x * x;
+                                let inner = SQRT_2_PI * (x + 0.044715 * x3);
+                                let res = 0.5 * x * (1.0 + inner.tanh());
+                                g_slice[i] = res * u_slice[i];
+                            }
+                        }
+                    });
 
-                             // NewGelu approximation: 0.5 * x * (1 + tanh(sqrt(2/pi) * (x + 0.044715 * x^3)))
-                             const SQRT_2_PI: f32 = 0.79788456;
-                             for i in 0..len {
-                                 let x = g_slice[i];
-                                 let x3 = x * x * x;
-                                 let inner = SQRT_2_PI * (x + 0.044715 * x3);
-                                 let res = 0.5 * x * (1.0 + inner.tanh());
-                                 g_slice[i] = res * u_slice[i];
-                             }
-                         }
-                     });
-
-                     return gate.apply(&self.down_proj.inner);
-                 }
-             }
+                    return gate.apply(&self.down_proj.inner);
+                }
+            }
         }
 
         // Fallback
         let lhs = gate.apply(&candle_nn::Activation::NewGelu)?;
 
-        (lhs * up)?.apply(
-            &self.down_proj.inner,
-        )
+        (lhs * up)?.apply(&self.down_proj.inner)
     }
 }
 
@@ -595,61 +506,22 @@ impl Attention {
         mask: Option<&Tensor>,
         seqlen_offset: usize,
     ) -> Result<Tensor> {
-
-        let (b_sz, q_len, _) =
-            xs.dims3()?;
+        let (b_sz, q_len, _) = xs.dims3()?;
 
         let (q, (k, v)) = rayon::join(
-            || {
-
-                self.q_proj
-                    .forward(xs)
-            },
-            || {
-
-                rayon::join(
-                    || {
-
-                        self.k_proj
-                            .forward(xs)
-                    },
-                    || {
-
-                        self.v_proj
-                            .forward(xs)
-                    },
-                )
-            },
+            || self.q_proj.forward(xs),
+            || rayon::join(|| self.k_proj.forward(xs), || self.v_proj.forward(xs)),
         );
 
-        let q = q?.reshape((
-            b_sz,
-            q_len,
-            self.num_heads,
-            self.head_dim,
-        ))?;
+        let q = q?.reshape((b_sz, q_len, self.num_heads, self.head_dim))?;
 
-        let k = k?.reshape((
-            b_sz,
-            q_len,
-            self.num_kv_heads,
-            self.head_dim,
-        ))?;
+        let k = k?.reshape((b_sz, q_len, self.num_kv_heads, self.head_dim))?;
 
-        let v = v?.reshape((
-            b_sz,
-            q_len,
-            self.num_kv_heads,
-            self.head_dim,
-        ))?;
+        let v = v?.reshape((b_sz, q_len, self.num_kv_heads, self.head_dim))?;
 
-        let q = self
-            .q_norm
-            .forward(&q)?;
+        let q = self.q_norm.forward(&q)?;
 
-        let k = self
-            .k_norm
-            .forward(&k)?;
+        let k = self.k_norm.forward(&k)?;
 
         // Transpose to (b, h, s, d) for RoPE and Attention
         let q = q.transpose(1, 2)?;
@@ -659,47 +531,26 @@ impl Attention {
         let v = v.transpose(1, 2)?;
 
         // Apply RoPE
-        let (q, k) = self
-            .rotary_emb
-            .apply(
-                &q,
-                &k,
-                seqlen_offset,
-            )?;
+        let (q, k) = self.rotary_emb.apply(&q, &k, seqlen_offset)?;
 
         // KV Cache Update
-        let (k, v) = match &self
-            .kv_cache
-        {
+        let (k, v) = match &self.kv_cache {
             | None => (k, v),
             | Some((pk, pv)) => {
+                let k = Tensor::cat(&[pk, &k], 2)?;
 
-                let k = Tensor::cat(
-                    &[pk, &k],
-                    2,
-                )?;
-
-                let v = Tensor::cat(
-                    &[pv, &v],
-                    2,
-                )?;
+                let v = Tensor::cat(&[pv, &v], 2)?;
 
                 (k, v)
             },
         };
 
-        self.kv_cache = Some((
-            k.clone(),
-            v.clone(),
-        ));
+        self.kv_cache = Some((k.clone(), v.clone()));
 
         // GQA Expansion: (b, n_kv, s, d) -> (b, n_h, s, d)
         let total_s = k.dims()[2];
 
-        let k = if self.num_kv_heads
-            != self.num_heads
-        {
-
+        let k = if self.num_kv_heads != self.num_heads {
             k.unsqueeze(2)?
                 .broadcast_as((
                     b_sz,
@@ -709,21 +560,12 @@ impl Attention {
                     self.head_dim,
                 ))?
                 .contiguous()?
-                .reshape((
-                    b_sz,
-                    self.num_heads,
-                    total_s,
-                    self.head_dim,
-                ))?
+                .reshape((b_sz, self.num_heads, total_s, self.head_dim))?
         } else {
-
             k
         };
 
-        let v = if self.num_kv_heads
-            != self.num_heads
-        {
-
+        let v = if self.num_kv_heads != self.num_heads {
             v.unsqueeze(2)?
                 .broadcast_as((
                     b_sz,
@@ -733,31 +575,20 @@ impl Attention {
                     self.head_dim,
                 ))?
                 .contiguous()?
-                .reshape((
-                    b_sz,
-                    self.num_heads,
-                    total_s,
-                    self.head_dim,
-                ))?
+                .reshape((b_sz, self.num_heads, total_s, self.head_dim))?
         } else {
-
             v
         };
 
         let k_t = k.transpose(2, 3)?;
 
-        let scale = 1.0
-            / (self.head_dim as f64)
-                .sqrt();
+        let scale = 1.0 / (self.head_dim as f64).sqrt();
 
-        let att =
-            (q.matmul(&k_t)? * scale)?;
+        let att = (q.matmul(&k_t)? * scale)?;
 
         let att = match mask {
             | None => att,
-            | Some(m) => {
-                att.broadcast_add(m)?
-            },
+            | Some(m) => att.broadcast_add(m)?,
         };
 
         let att = candle_nn::ops::softmax_last_dim(&att)?;
@@ -767,11 +598,7 @@ impl Attention {
             .matmul(&v)?
             .transpose(1, 2)? // (b, s, h, d)
             .contiguous()?
-            .reshape((
-                b_sz,
-                q_len,
-                (),
-            ))?;
+            .reshape((b_sz, q_len, ()))?;
 
         out.apply(&self.o_proj.inner)
     }
@@ -797,40 +624,23 @@ impl DecoderLayer {
         mask: Option<&Tensor>,
         seqlen_offset: usize,
     ) -> Result<Tensor> {
-
         let residual = xs;
 
-        let x = self
-            .attn_norm
-            .forward(xs)?;
+        let x = self.attn_norm.forward(xs)?;
 
-        let x = self
-            .attention
-            .forward(
-                &x,
-                mask,
-                seqlen_offset,
-            )?;
+        let x = self.attention.forward(&x, mask, seqlen_offset)?;
 
-        let x = self
-            .post_attn_norm
-            .forward(&x)?;
+        let x = self.post_attn_norm.forward(&x)?;
 
         let xs = (x + residual)?;
 
         let residual = &xs;
 
-        let x = self
-            .ffn_norm
-            .forward(&xs)?;
+        let x = self.ffn_norm.forward(&xs)?;
 
-        let x = self
-            .mlp
-            .forward(&x)?;
+        let x = self.mlp.forward(&x)?;
 
-        let x = self
-            .post_ffn_norm
-            .forward(&x)?;
+        let x = self.post_ffn_norm.forward(&x)?;
 
         x + residual
     }
@@ -855,41 +665,22 @@ impl Model {
         path: P,
         device: &Device,
     ) -> anyhow::Result<Self> {
-
         use log;
 
-        log::info!(
-            "🔍 Loading GGUF from {:?}",
-            path.as_ref()
-        );
+        log::info!("🔍 Loading GGUF from {:?}", path.as_ref());
 
-        let file =
-            std::fs::File::open(path)?;
+        let file = std::fs::File::open(path)?;
 
-        let mmap = unsafe {
+        let mmap = unsafe { memmap2::Mmap::map(&file)? };
 
-            memmap2::Mmap::map(&file)?
-        };
+        let mut reader = std::io::Cursor::new(&mmap);
 
-        let mut reader =
-            std::io::Cursor::new(&mmap);
-
-        let content =
-            gguf_file::Content::read(
-                &mut reader,
-            )?;
+        let content = gguf_file::Content::read(&mut reader)?;
 
         log::info!("📝 GGUF Keys:");
 
-        for key in content
-            .tensor_infos
-            .keys()
-        {
-
-            if key.contains("blk.0")
-                || !key.contains("blk.")
-            {
-
+        for key in content.tensor_infos.keys() {
+            if key.contains("blk.0") || !key.contains("blk.") {
                 log::info!("  {}", key);
             }
         }
@@ -902,94 +693,84 @@ impl Model {
             cfg
         );
 
-        let mut layers =
-            Vec::with_capacity(
-                cfg.num_hidden_layers,
-            );
+        let mut layers = Vec::with_capacity(cfg.num_hidden_layers);
 
-        let embed_tokens_weight =
-            content
+        let embed_tokens_weight = content
+            .tensor(&mut reader, "token_embd.weight", device)?
+            .dequantize(device)?;
+
+        let embed_tokens = candle_nn::Embedding::new(embed_tokens_weight, cfg.hidden_size);
+
+        let rotary_emb_local = Arc::new(RotaryEmbedding::new(DType::F32, &cfg, 10_000.0, device)?);
+
+        // Gemma 3 uses 1M for global layers as per tech report
+        let rotary_emb_global =
+            Arc::new(RotaryEmbedding::new(DType::F32, &cfg, 1_000_000.0, device)?);
+
+        for i in 0..cfg.num_hidden_layers {
+            let prefix = format!("blk.{}", i);
+
+            // Per Gemma 3 report: 1 global for every 5 local layers. Starting with local.
+            // Layers: 0,1,2,3,4 (Local), 5 (Global), 6,7,8,9,10 (Local), 11 (Global), 12,13,14,15 (Local)
+            let is_global = i == 5 || i == 11;
+
+            let rotary_emb = if is_global {
+                rotary_emb_global.clone()
+            } else {
+                rotary_emb_local.clone()
+            };
+
+            let q_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.attn_q.weight", prefix),
+                device,
+            )?)?;
+
+            let k_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.attn_k.weight", prefix),
+                device,
+            )?)?;
+
+            let v_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.attn_v.weight", prefix),
+                device,
+            )?)?;
+
+            let o_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.attn_output.weight", prefix),
+                device,
+            )?)?;
+
+            let q_norm_w = content
                 .tensor(
                     &mut reader,
-                    "token_embd.weight",
+                    &format!("{}.attn_q_norm.weight", prefix),
                     device,
                 )?
                 .dequantize(device)?;
 
-        let embed_tokens =
-            candle_nn::Embedding::new(
-                embed_tokens_weight,
-                cfg.hidden_size,
-            );
-
-        let rotary_emb_local = Arc::new(
-            RotaryEmbedding::new(
-                DType::F32,
-                &cfg,
-                10_000.0,
-                device,
-            )?,
-        );
-
-        // Gemma 3 uses 1M for global layers as per tech report
-        let rotary_emb_global =
-            Arc::new(
-                RotaryEmbedding::new(
-                    DType::F32,
-                    &cfg,
-                    1_000_000.0,
+            let k_norm_w = content
+                .tensor(
+                    &mut reader,
+                    &format!("{}.attn_k_norm.weight", prefix),
                     device,
-                )?,
-            );
+                )?
+                .dequantize(device)?;
 
-        for i in
-            0 .. cfg.num_hidden_layers
-        {
+            let q_norm = RmsNorm::new(q_norm_w, cfg.rms_norm_eps);
 
-            let prefix =
-                format!("blk.{}", i);
-
-            // Per Gemma 3 report: 1 global for every 5 local layers. Starting with local.
-            // Layers: 0,1,2,3,4 (Local), 5 (Global), 6,7,8,9,10 (Local), 11 (Global), 12,13,14,15 (Local)
-            let is_global =
-                i == 5 || i == 11;
-
-            let rotary_emb =
-                if is_global {
-
-                    rotary_emb_global
-                        .clone()
-                } else {
-
-                    rotary_emb_local
-                        .clone()
-                };
-
-            let q_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_q.weight", prefix), device)?)?;
-
-            let k_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_k.weight", prefix), device)?)?;
-
-            let v_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_v.weight", prefix), device)?)?;
-
-            let o_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.attn_output.weight", prefix), device)?)?;
-
-            let q_norm_w = content.tensor(&mut reader, &format!("{}.attn_q_norm.weight", prefix), device)?.dequantize(device)?;
-
-            let k_norm_w = content.tensor(&mut reader, &format!("{}.attn_k_norm.weight", prefix), device)?.dequantize(device)?;
-
-            let q_norm = RmsNorm::new(
-                q_norm_w,
-                cfg.rms_norm_eps,
-            );
-
-            let k_norm = RmsNorm::new(
-                k_norm_w,
-                cfg.rms_norm_eps,
-            );
+            let k_norm = RmsNorm::new(k_norm_w, cfg.rms_norm_eps);
 
             let attention = Attention {
-                q_proj, k_proj, v_proj, o_proj,
-                q_norm, k_norm,
+                q_proj,
+                k_proj,
+                v_proj,
+                o_proj,
+                q_norm,
+                k_norm,
                 num_heads: cfg.num_heads(), // Corrected helper for num_heads? No, field is fine.
                 num_kv_heads: cfg.num_kv_heads(),
                 num_kv_groups: cfg.num_attention_heads / cfg.num_key_value_heads,
@@ -998,11 +779,23 @@ impl Model {
                 kv_cache: None,
             };
 
-            let gate_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_gate.weight", prefix), device)?)?;
+            let gate_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.ffn_gate.weight", prefix),
+                device,
+            )?)?;
 
-            let up_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_up.weight", prefix), device)?)?;
+            let up_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.ffn_up.weight", prefix),
+                device,
+            )?)?;
 
-            let down_proj = QLinear::new(content.tensor(&mut reader, &format!("{}.ffn_down.weight", prefix), device)?)?;
+            let down_proj = QLinear::new(content.tensor(
+                &mut reader,
+                &format!("{}.ffn_down.weight", prefix),
+                device,
+            )?)?;
 
             let mlp = MLP {
                 gate_proj,
@@ -1011,22 +804,38 @@ impl Model {
             };
 
             let attn_norm = RmsNorm::new(
-                content.tensor(&mut reader, &format!("{}.attn_norm.weight", prefix), device)?.dequantize(device)?,
+                content
+                    .tensor(&mut reader, &format!("{}.attn_norm.weight", prefix), device)?
+                    .dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let post_attn_norm = RmsNorm::new(
-                content.tensor(&mut reader, &format!("{}.post_attention_norm.weight", prefix), device)?.dequantize(device)?,
+                content
+                    .tensor(
+                        &mut reader,
+                        &format!("{}.post_attention_norm.weight", prefix),
+                        device,
+                    )?
+                    .dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let ffn_norm = RmsNorm::new(
-                content.tensor(&mut reader, &format!("{}.ffn_norm.weight", prefix), device)?.dequantize(device)?,
+                content
+                    .tensor(&mut reader, &format!("{}.ffn_norm.weight", prefix), device)?
+                    .dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
             let post_ffn_norm = RmsNorm::new(
-                content.tensor(&mut reader, &format!("{}.post_ffw_norm.weight", prefix), device)?.dequantize(device)?,
+                content
+                    .tensor(
+                        &mut reader,
+                        &format!("{}.post_ffw_norm.weight", prefix),
+                        device,
+                    )?
+                    .dequantize(device)?,
                 cfg.rms_norm_eps,
             );
 
@@ -1039,43 +848,18 @@ impl Model {
                 post_ffn_norm,
             });
 
-            log::info!(
-                "  Layer {} loaded",
-                i
-            );
+            log::info!("  Layer {} loaded", i);
         }
 
         let norm_w = content
-            .tensor(
-                &mut reader,
-                "output_norm.weight",
-                device,
-            )?
+            .tensor(&mut reader, "output_norm.weight", device)?
             .dequantize(device)?;
 
-        let norm = RmsNorm::new(
-            norm_w,
-            cfg.rms_norm_eps,
-        );
+        let norm = RmsNorm::new(norm_w, cfg.rms_norm_eps);
 
-        let lm_head_weight = if content
-            .tensor_infos
-            .contains_key(
-                "output.weight",
-            ) {
-
-            content.tensor(
-                &mut reader,
-                "output.weight",
-                device,
-            )?
-        } else if content
-            .tensor_infos
-            .contains_key(
-                "token_embd.weight",
-            )
-        {
-
+        let lm_head_weight = if content.tensor_infos.contains_key("output.weight") {
+            content.tensor(&mut reader, "output.weight", device)?
+        } else if content.tensor_infos.contains_key("token_embd.weight") {
             log::info!(
                 "💡 Weight tying \
                  detected: using \
@@ -1083,13 +867,8 @@ impl Model {
                  for output.weight"
             );
 
-            content.tensor(
-                &mut reader,
-                "token_embd.weight",
-                device,
-            )?
+            content.tensor(&mut reader, "token_embd.weight", device)?
         } else {
-
             anyhow::bail!(
                 "Could not find \
                  output.weight or \
@@ -1098,9 +877,7 @@ impl Model {
             );
         };
 
-        let lm_head = QLinear::new(
-            lm_head_weight,
-        )?;
+        let lm_head = QLinear::new(lm_head_weight)?;
 
         log::info!(
             "✨ Model loading \
@@ -1112,8 +889,7 @@ impl Model {
             layers,
             norm,
             lm_head,
-            hidden_size: cfg
-                .hidden_size,
+            hidden_size: cfg.hidden_size,
             device: device.clone(),
             dtype: DType::F32,
         })
@@ -1124,120 +900,73 @@ impl Model {
         input_ids: &Tensor,
         seqlen_offset: usize,
     ) -> Result<Tensor> {
-
-        let (b_sz, seq_len) =
-            input_ids.dims2()?;
+        let (b_sz, seq_len) = input_ids.dims2()?;
 
         // Streamlined mask generation
         let mask = if seq_len <= 1 {
-
             None
         } else {
+            let mut mask_vec = vec![0.0f32; seq_len * seq_len];
 
-            let mut mask_vec = vec![
-                    0.0f32;
-                    seq_len * seq_len
-                ];
-
-            for i in 0 .. seq_len {
-
-                for j in
-                    i + 1 .. seq_len
-                {
-
+            for i in 0..seq_len {
+                for j in i + 1..seq_len {
                     mask_vec[i * seq_len + j] = f32::NEG_INFINITY;
                 }
             }
 
             Some(
-                Tensor::from_vec(
-                    mask_vec,
-                    (
-                        1,
-                        1,
-                        seq_len,
-                        seq_len,
-                    ),
-                    &self.device,
-                )?
-                .to_dtype(self.dtype)?,
+                Tensor::from_vec(mask_vec, (1, 1, seq_len, seq_len), &self.device)?
+                    .to_dtype(self.dtype)?,
             )
         };
 
-        let xs = self
-            .embed_tokens
-            .forward(input_ids)?;
+        let xs = self.embed_tokens.forward(input_ids)?;
 
-        let scale = (self.hidden_size
-            as f64)
-            .sqrt();
+        let scale = (self.hidden_size as f64).sqrt();
 
         let mut xs = (xs * scale)?;
 
-        for layer in self
-            .layers
-            .iter_mut()
-        {
-
-            xs = layer.forward(
-                &xs,
-                mask.as_ref(),
-                seqlen_offset,
-            )?;
+        for layer in self.layers.iter_mut() {
+            xs = layer.forward(&xs, mask.as_ref(), seqlen_offset)?;
         }
 
         // Final normalization and projection for the last token only
-        let xs = xs
-            .narrow(1, seq_len - 1, 1)?
-            .apply(&self.norm)?;
+        let xs = xs.narrow(1, seq_len - 1, 1)?.apply(&self.norm)?;
 
-        let mut logits = xs.apply(
-            &self.lm_head.inner,
-        )?;
+        let mut logits = xs.apply(&self.lm_head.inner)?;
 
         // Optimized logit soft-capping: tanh(logits / cap) * cap
         let cap = 30.0f64;
 
-        if logits
-            .device()
-            .is_cpu()
-            && logits.dtype()
-                == DType::F32
-        {
+        if logits.device().is_cpu() && logits.dtype() == DType::F32 {
+            logits = logits.contiguous()?;
 
-            logits =
-                logits.contiguous()?;
-
-            let (storage, layout) =
-                logits
-                    .storage_and_layout(
-                    );
+            let (storage, layout) = logits.storage_and_layout();
 
             if let candle_core::Storage::Cpu(cpu) = &*storage {
-                        let ptr = cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
-                        let len = layout.shape().elem_count();
-                        let arch = Arch::new();
-                        arch.dispatch(|| {
-                            unsafe {
-                                let offset = layout.start_offset();
-                                let slice = std::slice::from_raw_parts_mut(ptr.add(offset), len);
-                                let cap_f32 = cap as f32;
-                                let inv_cap_f32 = 1.0 / cap_f32;
-                                for i in 0..len {
-                                    slice[i] = (slice[i] * inv_cap_f32).tanh() * cap_f32;
-                                }
-                            }
-                        });
-                        drop(storage);
-                        return Ok(logits);
+                let ptr = cpu.as_slice::<f32>()?.as_ptr() as *mut f32;
+                let len = layout.shape().elem_count();
+                let arch = Arch::new();
+                arch.dispatch(|| {
+                    unsafe {
+                        let offset = layout.start_offset();
+                        let slice = std::slice::from_raw_parts_mut(ptr.add(offset), len);
+                        let cap_f32 = cap as f32;
+                        let inv_cap_f32 = 1.0 / cap_f32;
+                        for i in 0..len {
+                            slice[i] = (slice[i] * inv_cap_f32).tanh() * cap_f32;
+                        }
                     }
+                });
+                drop(storage);
+                return Ok(logits);
+            }
         }
 
         // Fallback for non-CPU/non-F32
         let inv_cap = 1.0 / cap;
 
-        let logits = logits
-            .affine(inv_cap, 0.0)?;
+        let logits = logits.affine(inv_cap, 0.0)?;
 
         let logits = logits.tanh()?;
 
@@ -1245,15 +974,8 @@ impl Model {
     }
 
     pub fn clear_kv_cache(&mut self) {
-
-        for layer in self
-            .layers
-            .iter_mut()
-        {
-
-            layer
-                .attention
-                .kv_cache = None;
+        for layer in self.layers.iter_mut() {
+            layer.attention.kv_cache = None;
         }
     }
 }
@@ -1266,7 +988,6 @@ impl Config {
     #[inline(always)]
 
     fn num_heads(&self) -> usize {
-
         self.num_attention_heads
     }
 
@@ -1274,7 +995,6 @@ impl Config {
     #[inline(always)]
 
     fn num_kv_heads(&self) -> usize {
-
         self.num_key_value_heads
     }
 }
@@ -1295,26 +1015,13 @@ impl Gemma3 {
         model_path: P,
         tokenizer_path: P,
     ) -> anyhow::Result<Self> {
-
         let device = Device::Cpu;
 
-        let model = Model::from_gguf(
-            model_path,
-            &device,
-        )?;
+        let model = Model::from_gguf(model_path, &device)?;
 
-        let tokenizer_file =
-            std::fs::File::open(
-                tokenizer_path,
-            )?;
+        let tokenizer_file = std::fs::File::open(tokenizer_path)?;
 
-        let mut mmap = unsafe {
-
-            memmap2::MmapOptions::new()
-                .map_copy(
-                    &tokenizer_file,
-                )?
-        };
+        let mut mmap = unsafe { memmap2::MmapOptions::new().map_copy(&tokenizer_file)? };
 
         let tokenizer: Tokenizer = simd_json::from_slice(&mut mmap)
             .map_err(|e| anyhow::anyhow!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
@@ -1330,10 +1037,7 @@ impl Gemma3 {
     #[allow(clippy::inline_always)]
     #[inline(always)]
 
-    pub fn is_initialized(
-        &self
-    ) -> bool {
-
+    pub fn is_initialized(&self) -> bool {
         self.initialized
     }
 
@@ -1344,7 +1048,6 @@ impl Gemma3 {
         &mut self,
         v: bool,
     ) {
-
         self.initialized = v;
     }
 
@@ -1363,80 +1066,47 @@ impl Gemma3 {
         max_tokens: usize,
         check_cancel: impl Fn() -> bool,
     ) -> anyhow::Result<String> {
-
-        self.model
-            .clear_kv_cache();
+        self.model.clear_kv_cache();
 
         let tokens = self
             .tokenizer
             .encode(prompt, true)
-            .map_err(
-                anyhow::Error::msg,
-            )?;
+            .map_err(anyhow::Error::msg)?;
 
-        let mut tokens_vec = tokens
-            .get_ids()
-            .to_vec();
+        let mut tokens_vec = tokens.get_ids().to_vec();
 
         // Pre-allocate string capacity for better performance
         // Assuming average of 4 chars per token
-        let mut generated =
-            String::with_capacity(
-                max_tokens * 4,
-            );
+        let mut generated = String::with_capacity(max_tokens * 4);
 
         log::info!(
             "🎹 Tokens: {:?}",
-            &tokens_vec
-                [.. std::cmp::min(
-                    tokens_vec.len(),
-                    10
-                )]
+            &tokens_vec[..std::cmp::min(tokens_vec.len(), 10)]
         );
 
-        for i in 0 .. max_tokens {
-
+        for i in 0..max_tokens {
             // Check for cancellation
             if check_cancel() {
-
                 log::info!("✋ Generation stopped (cancellation signal).");
 
                 break;
             }
 
-            let context_size = if i == 0
-            {
-
+            let context_size = if i == 0 {
                 tokens_vec.len()
             } else {
-
                 1
             };
 
-            let start_pos = tokens_vec
-                .len()
-                - context_size;
+            let start_pos = tokens_vec.len() - context_size;
 
-            let input = Tensor::new(
-                &tokens_vec
-                    [start_pos ..],
-                &self.device,
-            )?
-            .unsqueeze(0)?;
+            let input = Tensor::new(&tokens_vec[start_pos..], &self.device)?.unsqueeze(0)?;
 
-            let logits =
-                self.model.forward(
-                    &input,
-                    start_pos,
-                )?;
+            let logits = self.model.forward(&input, start_pos)?;
 
             // Optimized argmax: Access CPU storage directly to avoid tensor metadata overhead
             // and multiple squeeze() operations.
-            let next_token = if logits
-                .device()
-                .is_cpu()
-            {
-
+            let next_token = if logits.device().is_cpu() {
                 let (storage, layout) = logits.storage_and_layout();
 
                 if let candle_core::Storage::Cpu(cpu) = &*storage {
@@ -1475,19 +1145,12 @@ impl Gemma3 {
                     logits.argmax(D::Minus1)?.to_scalar::<u32>()?
                 }
             } else {
-
-                logits
-                    .argmax(D::Minus1)?
-                    .to_scalar::<u32>(
-                    )?
+                logits.argmax(D::Minus1)?.to_scalar::<u32>()?
             };
 
             // Early termination check before decoding (performance optimization)
             // Check for common EOS tokens first
-            if next_token == 1
-                || next_token == 107
-            {
-
+            if next_token == 1 || next_token == 107 {
                 break;
             }
 
@@ -1495,13 +1158,8 @@ impl Gemma3 {
 
             let token_text = self
                 .tokenizer
-                .decode(
-                    &[next_token],
-                    true,
-                )
-                .map_err(
-                    anyhow::Error::msg,
-                )?;
+                .decode(&[next_token], true)
+                .map_err(anyhow::Error::msg)?;
 
             // Helpful for debugging why self-test or generation might fail
             log::info!(
@@ -1509,31 +1167,20 @@ impl Gemma3 {
                  {}, text: '{}'",
                 i,
                 next_token,
-                token_text.replace(
-                    "\n", "\\n"
-                )
+                token_text.replace("\n", "\\n")
             );
 
-            if token_text.contains(
-                "<end_of_turn>",
-            ) || token_text
-                .contains("<eos>")
-            {
-
+            if token_text.contains("<end_of_turn>") || token_text.contains("<eos>") {
                 break;
             }
 
-            generated
-                .push_str(&token_text);
+            generated.push_str(&token_text);
         }
 
         Ok(generated)
     }
 
-    pub fn self_test(
-        &mut self
-    ) -> anyhow::Result<()> {
-
+    pub fn self_test(&mut self) -> anyhow::Result<()> {
         use log;
 
         log::info!(
@@ -1553,18 +1200,12 @@ impl Gemma3 {
             || false,
         )?;
 
-        log::info!(
-            "  Test Result: '{}'",
-            res
-        );
+        log::info!("  Test Result: '{}'", res);
 
         // Very lenient check since it's a tiny model
         let upper = res.to_uppercase();
 
-        if upper.contains("YES")
-            || upper.contains("NO")
-        {
-
+        if upper.contains("YES") || upper.contains("NO") {
             log::info!(
                 "✅ Self-test passed \
                  (Found '{}').",
@@ -1572,11 +1213,7 @@ impl Gemma3 {
             );
 
             Ok(())
-        } else if !res
-            .trim()
-            .is_empty()
-        {
-
+        } else if !res.trim().is_empty() {
             log::info!(
                 "⚠️ Self-test \
                  produced non-YES/NO \
@@ -1587,7 +1224,6 @@ impl Gemma3 {
 
             Ok(())
         } else {
-
             Err(anyhow::anyhow!(
                 "Self-test failed: No \
                  tokens generated"
@@ -1600,13 +1236,11 @@ impl Gemma3 {
 
 impl Drop for Gemma3 {
     fn drop(&mut self) {
-
         // Simple log to verify destruction on server stdout
         // We use log::info! or log! if available. Since it's library code, log::info might be safer or log.
         // But let's assume `log` crate is available as it's used in lib.rs
         // Actually ai.rs does not import log. We can add `use log;` or just log::info.
-        // println!(
-        //     "♻️ Gemma3 Model is being \
+        // println!( //     "♻️ Gemma3 Model is being \
         //      dropped/deallocated."
         // );
 

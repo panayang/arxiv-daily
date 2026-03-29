@@ -28,86 +28,43 @@ use vergen_gitcl::GitclBuilder;
 use vergen_gitcl::RustcBuilder;
 use vergen_gitcl::SysinfoBuilder;
 
-fn main() -> Result<
-    (),
-    Box<dyn std::error::Error>,
-> {
-
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rustc-env=VERGEN_SYSINFO_KERNEL_VERSION=unknown");
 
-    let mut emitter =
-        Emitter::default();
+    let mut emitter = Emitter::default();
 
-    emitter.add_instructions(
-        &BuildBuilder::all_build()?,
-    )?;
+    emitter.add_instructions(&BuildBuilder::all_build()?)?;
 
-    emitter.add_instructions(
-        &CargoBuilder::all_cargo()?,
-    )?;
+    emitter.add_instructions(&CargoBuilder::all_cargo()?)?;
 
-    let git = GitclBuilder::default()
-        .all()
-        .dirty(true)
-        .build()?;
+    let git = GitclBuilder::default().all().dirty(true).build()?;
 
     emitter.add_instructions(&git)?;
 
-    emitter.add_instructions(
-        &RustcBuilder::all_rustc()?,
-    )?;
+    emitter.add_instructions(&RustcBuilder::all_rustc()?)?;
 
-    emitter.add_instructions(
-        &SysinfoBuilder::all_sysinfo()?,
-    )?;
+    emitter.add_instructions(&SysinfoBuilder::all_sysinfo()?)?;
 
     emitter.emit()?;
 
     // Tokenizer conversion logic
-    let tokenizer_json_path =
-        if Path::new(
-            "assets/tokenizer.json",
-        )
-        .exists()
-        {
+    let tokenizer_json_path = if Path::new("assets/tokenizer.json").exists() {
+        "assets/tokenizer.json".to_string()
+    } else if Path::new("../assets/tokenizer.json").exists() {
+        "../assets/tokenizer.json".to_string()
+    } else {
+        println!("cargo:warning=tokenizer.json not found, skipping bincode conversion");
 
-            "assets/tokenizer.json"
-                .to_string()
-        } else if Path::new(
-            "../assets/tokenizer.json",
-        )
-        .exists()
-        {
+        return Ok(());
+    };
 
-            "../assets/tokenizer.json"
-                .to_string()
-        } else {
+    let tokenizer_bin_path = tokenizer_json_path.replace(".json", ".bin");
 
-            println!("cargo:warning=tokenizer.json not found, skipping bincode conversion");
-
-            return Ok(());
-        };
-
-    let tokenizer_bin_path =
-        tokenizer_json_path
-            .replace(".json", ".bin");
-
-    if !Path::new(&tokenizer_bin_path)
-        .exists()
-        || std::fs::metadata(
-            &tokenizer_json_path,
-        )?
-        .modified()?
-            > std::fs::metadata(
-                &tokenizer_bin_path,
-            )?
-            .modified()?
+    if !Path::new(&tokenizer_bin_path).exists()
+        || std::fs::metadata(&tokenizer_json_path)?.modified()?
+            > std::fs::metadata(&tokenizer_bin_path)?.modified()?
     {
-
-        println!(
-            "cargo:rerun-if-changed={}",
-            tokenizer_json_path
-        );
+        println!("cargo:rerun-if-changed={}", tokenizer_json_path);
 
         println!(
             "cargo:warning=Converting \
@@ -118,11 +75,7 @@ fn main() -> Result<
         // let tokenizer_json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&tokenizer_json_path)?)
         //     .map_err(|e| format!("Failed to parse tokenizer JSON: {}", e))?;
 
-        let mut bytes = std::fs::read(
-            &tokenizer_json_path,
-        )
-        .map_err(|e| {
-
+        let mut bytes = std::fs::read(&tokenizer_json_path).map_err(|e| {
             format!(
                 "Failed to read file: \
                  {}",
@@ -135,10 +88,7 @@ fn main() -> Result<
             .map_err(|e| format!("Failed to parse tokenizer JSON with SIMD: {}", e))?;
 
         // Just copy the JSON for now. Bincode + serde_json::Value has Serde(AnyNotSupported) issues.
-        std::fs::copy(
-            &tokenizer_json_path,
-            &tokenizer_bin_path,
-        )?;
+        std::fs::copy(&tokenizer_json_path, &tokenizer_bin_path)?;
 
         println!(
             "cargo:warning=Tokenizer \
@@ -154,51 +104,29 @@ fn main() -> Result<
     }
 
     // Model conversion/copy logic
-    let model_gguf_path =
-        tokenizer_json_path.replace(
-            "tokenizer.json",
-            "gemma-270m.gguf",
-        );
+    let model_gguf_path = tokenizer_json_path.replace("tokenizer.json", "gemma-270m.gguf");
 
-    let model_bin_path =
-        tokenizer_json_path.replace(
-            "tokenizer.json",
-            "llm.bin",
-        );
+    let model_bin_path = tokenizer_json_path.replace("tokenizer.json", "llm.bin");
 
-    if Path::new(&model_gguf_path)
-        .exists()
-    {
-
+    if Path::new(&model_gguf_path).exists() {
         // Tell cargo to rerun if the source model changes
-        println!(
-            "cargo:rerun-if-changed={}",
-            model_gguf_path
-        );
+        println!("cargo:rerun-if-changed={}", model_gguf_path);
 
         // Copy if destination doesn't exist OR source is newer than destination
-        let should_copy = !Path::new(
-            &model_bin_path,
-        )
-        .exists()
-            || std::fs::metadata(
-                &model_gguf_path,
-            )?
-            .modified()?
-                > std::fs::metadata(
-                    &model_bin_path,
-                )?
-                .modified()?;
+        let should_copy = !Path::new(&model_bin_path).exists()
+            || std::fs::metadata(&model_gguf_path)?.modified()?
+                > std::fs::metadata(&model_bin_path)?.modified()?;
 
         if should_copy {
-
-            println!("cargo:warning=Copying {} to {}...", model_gguf_path, model_bin_path);
+            println!(
+                "cargo:warning=Copying {} to {}...",
+                model_gguf_path, model_bin_path
+            );
 
             std::fs::copy(&model_gguf_path, &model_bin_path)
                 .map_err(|e| format!("Failed to copy model file: {}", e))?;
         }
     } else {
-
         println!(
             "cargo:warning=gemma-270m.\
              gguf not found at {}, \
@@ -208,77 +136,47 @@ fn main() -> Result<
     }
 
     // Surprise encryption logic
-    let surprise_toml_path =
-        if Path::new("surprise.toml")
-            .exists()
-        {
+    let surprise_toml_path = if Path::new("surprise.toml").exists() {
+        "surprise.toml"
+    } else {
+        "../surprise.toml"
+    };
 
-            "surprise.toml"
-        } else {
+    if Path::new(surprise_toml_path).exists() {
+        println!("cargo:rerun-if-changed={}", surprise_toml_path);
 
-            "../surprise.toml"
-        };
+        let content = std::fs::read_to_string(surprise_toml_path)?;
 
-    if Path::new(surprise_toml_path)
-        .exists()
-    {
-
-        println!(
-            "cargo:rerun-if-changed={}",
-            surprise_toml_path
-        );
-
-        let content =
-            std::fs::read_to_string(
-                surprise_toml_path,
-            )?;
-
-        #[derive(
-            serde::Deserialize,
-        )]
+        #[derive(serde::Deserialize)]
 
         struct Surprise {
             key: String,
             payload: String,
         }
 
-        let surprise: Surprise =
-            toml::from_str(&content)?;
+        let surprise: Surprise = toml::from_str(&content)?;
 
         // Parse key
         let (_, mut key_expr) = rssn::input::parser::parse_expr(&surprise.key)
             .map_err(|e| format!("Failed to parse key: {}", e))?;
 
-        key_expr =
-            force_bigint(key_expr);
+        key_expr = force_bigint(key_expr);
 
         // 5th derivative
         let mut deriv = key_expr;
 
-        for _ in 0 .. 5 {
-
-            deriv = differentiate(
-                &deriv,
-                "x",
-            );
+        for _ in 0..5 {
+            deriv = differentiate(&deriv, "x");
         }
 
         deriv = simplify(&deriv)
             .to_ast()
-            .map_err(|e| {
-
-                format!(
-                    "to_ast failed: {}",
-                    e
-                )
-            })?;
+            .map_err(|e| format!("to_ast failed: {}", e))?;
 
         deriv = force_bigint(deriv);
 
         // Convert payload to BigInt in chunks (1 byte per chunk for maximum safety)
-        let payload_bytes = surprise
-            .payload
-            .as_bytes();
+        let payload_bytes = surprise.payload.as_bytes();
 
         let chunk_size = 1;
 
@@ -286,153 +184,87 @@ fn main() -> Result<
 
         // Context-dependent encryption to prevent frequency analysis
         // Initialize context with a salt derived from the key length and first chars
-        let mut context = BigInt::from(
-            0x5A5A5A5A_u32,
-        );
+        let mut context = BigInt::from(0x5A5A5A5A_u32);
 
-        if !surprise
-            .key
-            .is_empty()
-        {
-
+        if !surprise.key.is_empty() {
             // Mix in key-dependent salt
-            for b in surprise
-                .key
-                .as_bytes()
-                .iter()
-                .take(10)
-            {
-
-                context = (&context
-                    * BigInt::from(31))
-                    + BigInt::from(
-                        *b as u64,
-                    );
+            for b in surprise.key.as_bytes().iter().take(10) {
+                context = (&context * BigInt::from(31)) + BigInt::from(*b as u64);
             }
 
-            context = context
-                % BigInt::from(
-                    0xFFFFFFFF_u64,
-                );
+            context = context % BigInt::from(0xFFFFFFFF_u64);
         }
 
-        for (index, chunk) in
-            payload_bytes
-                .chunks(chunk_size)
-                .enumerate()
-        {
-
+        for (index, chunk) in payload_bytes.chunks(chunk_size).enumerate() {
             // Prepend a 1 byte to distinguish from trailing zeros and keep x > 255
-            let mut chunk_with_sentinel =
-                vec![1u8];
+            let mut chunk_with_sentinel = vec![1u8];
 
-            chunk_with_sentinel
-                .extend_from_slice(
-                    chunk,
-                );
+            chunk_with_sentinel.extend_from_slice(chunk);
 
             let p = BigInt::from_bytes_be(Sign::Plus, &chunk_with_sentinel);
 
             // Mix context into plaintext to make encryption position-dependent
-            let position_factor =
-                BigInt::from(
-                    (index + 1) as u64,
-                );
+            let position_factor = BigInt::from((index + 1) as u64);
 
             // Non-linear mixing: p + ((context * pos) % large_prime)
             // This makes p_mixed much larger and harder to pre-calculate
-            let context_mod = (&context
-                * &position_factor)
-                % BigInt::from(
-                    0xFFFFFF_u64,
-                );
+            let context_mod = (&context * &position_factor) % BigInt::from(0xFFFFFF_u64);
 
-            let p_mixed =
-                &p + &context_mod;
+            let p_mixed = &p + &context_mod;
 
             if index == 0 {
-
-                println!("cargo:warning=Chunk 0: p={}, context={}, pos_factor={}, context_mod={}, p_mixed={}", p, context, position_factor, context_mod, p_mixed);
+                println!(
+                    "cargo:warning=Chunk 0: p={}, context={}, pos_factor={}, context_mod={}, p_mixed={}",
+                    p, context, position_factor, context_mod, p_mixed
+                );
             }
 
             // Evaluate at P_mixed (context-dependent plaintext)
-            let eval_expr = substitute(
-                &deriv,
-                "x",
-                &Expr::BigInt(
-                    p_mixed.clone(),
-                ),
-            );
+            let eval_expr = substitute(&deriv, "x", &Expr::BigInt(p_mixed.clone()));
 
-            let r =
-                simplify(&eval_expr)
-                    .to_ast()
-                    .map_err(|e| {
-
-                        format!(
-                    "to_ast failed: {}",
-                    e
-                )
-                    })?;
+            let r = simplify(&eval_expr)
+                .to_ast()
+                .map_err(|e| format!("to_ast failed: {}", e))?;
 
             // Aggressively force evaluation of numeric parts
-            let evaled =
-                force_bigint_eval(r);
+            let evaled = force_bigint_eval(r);
 
             // Update context for next iteration
             // Must match decryption exactly!
             let cipher_val_bigint = match &evaled {
-                Expr::BigInt(n) => n.clone(),
-                Expr::Constant(f) => BigInt::from(f.round() as i64),
-                Expr::Rational(r) => r.to_integer(),
-                _ => BigInt::from(0),
+                | Expr::BigInt(n) => n.clone(),
+                | Expr::Constant(f) => BigInt::from(f.round() as i64),
+                | Expr::Rational(r) => r.to_integer(),
+                | _ => BigInt::from(0),
             };
 
-            context = (&context
-                * BigInt::from(31))
-                + &cipher_val_bigint
-                + &position_factor;
+            context = (&context * BigInt::from(31)) + &cipher_val_bigint + &position_factor;
 
-            context = context
-                % BigInt::from(
-                    0xFFFFFFFF_u64,
-                );
+            context = context % BigInt::from(0xFFFFFFFF_u64);
 
             results.push(evaled);
         }
 
         // Serialize
-        let assets_dir =
-            if Path::new("assets")
-                .exists()
-            {
+        let assets_dir = if Path::new("assets").exists() {
+            "assets"
+        } else {
+            "../assets"
+        };
 
-                "assets"
-            } else {
+        let surprise_bin_path = Path::new(assets_dir).join("surprise.bin");
 
-                "../assets"
-            };
-
-        let surprise_bin_path =
-            Path::new(assets_dir)
-                .join("surprise.bin");
-
-        let encoded: Vec<u8> = bincode_next::serde::encode_to_vec(&results, bincode_next::config::standard())
-            .map_err(|e| format!("Failed to encode: {}", e))?;
+        let encoded: Vec<u8> =
+            bincode_next::serde::encode_to_vec(&results, bincode_next::config::standard())
+                .map_err(|e| format!("Failed to encode: {}", e))?;
 
         // Remove existing file first to
         // avoid appending to stale data
         if surprise_bin_path.exists() {
-
-            std::fs::remove_file(
-                &surprise_bin_path,
-            )?;
+            std::fs::remove_file(&surprise_bin_path)?;
         }
 
-        std::fs::write(
-            &surprise_bin_path,
-            encoded,
-        )?;
+        std::fs::write(&surprise_bin_path, encoded)?;
 
         println!(
             "cargo:warning=Surprise \
@@ -446,64 +278,37 @@ fn main() -> Result<
     generate_tls_assets()?;
 
     // Admin password hashing logic
-    let admin_toml_path =
-        if Path::new("admin.toml")
-            .exists()
-        {
+    let admin_toml_path = if Path::new("admin.toml").exists() {
+        "admin.toml"
+    } else {
+        "../admin.toml"
+    };
 
-            "admin.toml"
-        } else {
+    if Path::new(admin_toml_path).exists() {
+        use argon2::Argon2;
+        use argon2::password_hash::PasswordHasher;
+        use argon2::password_hash::SaltString;
+        use argon2::password_hash::rand_core::OsRng;
 
-            "../admin.toml"
-        };
+        println!("cargo:rerun-if-changed={}", admin_toml_path);
 
-    if Path::new(admin_toml_path)
-        .exists()
-    {
+        let content = std::fs::read_to_string(admin_toml_path)?;
 
-        use argon2::{
-            password_hash::{
-                PasswordHasher, SaltString, rand_core::OsRng,
-            },
-            Argon2,
-        };
-
-        println!(
-            "cargo:rerun-if-changed={}",
-            admin_toml_path
-        );
-
-        let content =
-            std::fs::read_to_string(
-                admin_toml_path,
-            )?;
-
-        #[derive(
-            serde::Deserialize,
-        )]
+        #[derive(serde::Deserialize)]
 
         struct AdminConfig {
             password: String,
         }
 
-        let admin_config: AdminConfig =
-            toml::from_str(&content)?;
+        let admin_config: AdminConfig = toml::from_str(&content)?;
 
-        let salt = SaltString::generate(
-            &mut OsRng,
-        );
+        let salt = SaltString::generate(&mut OsRng);
 
         let argon2 = Argon2::default();
 
         let password_hash = argon2
-            .hash_password(
-                admin_config
-                    .password
-                    .as_bytes(),
-                &salt,
-            )
+            .hash_password(admin_config.password.as_bytes(), &salt)
             .map_err(|e| {
-
                 format!(
                     "Failed to hash \
                      password: {}",
@@ -512,34 +317,21 @@ fn main() -> Result<
             })?
             .to_string();
 
-        let assets_dir =
-            if Path::new("assets")
-                .exists()
-            {
+        let assets_dir = if Path::new("assets").exists() {
+            "assets"
+        } else {
+            "../assets"
+        };
 
-                "assets"
-            } else {
-
-                "../assets"
-            };
-
-        let admin_bin_path =
-            Path::new(assets_dir)
-                .join("admin.bin");
+        let admin_bin_path = Path::new(assets_dir).join("admin.bin");
 
         // Remove existing file first to
         // avoid appending to stale data
         if admin_bin_path.exists() {
-
-            std::fs::remove_file(
-                &admin_bin_path,
-            )?;
+            std::fs::remove_file(&admin_bin_path)?;
         }
 
-        std::fs::write(
-            &admin_bin_path,
-            password_hash,
-        )?;
+        std::fs::write(&admin_bin_path, password_hash)?;
 
         println!(
             "cargo:warning=Admin \
@@ -552,24 +344,16 @@ fn main() -> Result<
     Ok(())
 }
 
-fn generate_tls_assets() -> Result<
-    (),
-    Box<dyn std::error::Error>,
-> {
-
+fn generate_tls_assets() -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
 
     use rcgen::CertificateParams;
     use rcgen::DistinguishedName;
     use rcgen::KeyPair;
 
-    let config_path =
-        Path::new("build_config.toml");
+    let config_path = Path::new("build_config.toml");
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        config_path.display()
-    );
+    println!("cargo:rerun-if-changed={}", config_path.display());
 
     #[derive(serde::Deserialize)]
 
@@ -585,45 +369,30 @@ fn generate_tls_assets() -> Result<
         force_regenerate: bool,
     }
 
-    let config: BuildConfig =
-        if config_path.exists() {
+    let config: BuildConfig = if config_path.exists() {
+        let content = fs::read_to_string(config_path)?;
 
-            let content =
-                fs::read_to_string(
-                    config_path,
-                )?;
-
-            toml::from_str(&content)?
-        } else {
-
-            // Default config if file missing
-            BuildConfig {
+        toml::from_str(&content)?
+    } else {
+        // Default config if file missing
+        BuildConfig {
             certificate: CertificateConfig {
                 common_name: "localhost".to_string(),
                 subject_alt_names: vec!["localhost".to_string()],
                 force_regenerate: false,
-            }
+            },
         }
-        };
+    };
 
-    let assets_dir =
-        Path::new("../assets");
+    let assets_dir = Path::new("../assets");
 
     fs::create_dir_all(assets_dir)?;
 
-    let cert_path =
-        assets_dir.join("cert.pem");
+    let cert_path = assets_dir.join("cert.pem");
 
-    let key_path =
-        assets_dir.join("key.pem");
+    let key_path = assets_dir.join("key.pem");
 
-    if cert_path.exists()
-        && key_path.exists()
-        && !config
-            .certificate
-            .force_regenerate
-    {
-
+    if cert_path.exists() && key_path.exists() && !config.certificate.force_regenerate {
         return Ok(());
     }
 
@@ -632,50 +401,31 @@ fn generate_tls_assets() -> Result<
          assets..."
     );
 
-    let alg =
-        &rcgen::PKCS_ECDSA_P256_SHA256;
+    let alg = &rcgen::PKCS_ECDSA_P256_SHA256;
 
-    let key_pair =
-        KeyPair::generate_for(alg)?;
+    let key_pair = KeyPair::generate_for(alg)?;
 
-    let mut params =
-        CertificateParams::default();
+    let mut params = CertificateParams::default();
 
-    params.distinguished_name =
-        DistinguishedName::new();
+    params.distinguished_name = DistinguishedName::new();
 
     params
         .distinguished_name
-        .push(
-            rcgen::DnType::CommonName,
-            &config
-                .certificate
-                .common_name,
-        );
+        .push(rcgen::DnType::CommonName, &config.certificate.common_name);
 
     let mut sans = Vec::new();
 
-    for s in config
-        .certificate
-        .subject_alt_names
-    {
-
-        sans.push(
-            rcgen::SanType::DnsName(
-                s.try_into()?,
-            ),
-        );
+    for s in config.certificate.subject_alt_names {
+        sans.push(rcgen::SanType::DnsName(s.try_into()?));
     }
 
     params.subject_alt_names = sans;
 
-    let cert = params
-        .self_signed(&key_pair)?;
+    let cert = params.self_signed(&key_pair)?;
 
     let cert_pem = cert.pem();
 
-    let key_pem =
-        key_pair.serialize_pem();
+    let key_pem = key_pair.serialize_pem();
 
     fs::write(&cert_path, cert_pem)?;
 
@@ -691,81 +441,65 @@ fn generate_tls_assets() -> Result<
 }
 
 
-fn force_bigint(
-    root_expr: Expr
-) -> Expr {
-
+fn force_bigint(root_expr: Expr) -> Expr {
     // Stack-based iterative approach to avoid recursion overflow
     use num_traits::Signed;
     use num_traits::ToPrimitive;
 
-    let root_expr_clone =
-        root_expr.clone();
+    let root_expr_clone = root_expr.clone();
 
     // Helper to extract float value for approximate evaluation
-    let try_eval_float =
-        |e: &Expr| -> Option<f64> {
+    let try_eval_float = |e: &Expr| -> Option<f64> {
+        match e {
+            | Expr::Constant(f) => Some(*f),
+            | Expr::BigInt(b) => b.to_f64(),
+            | _ => None,
+        }
+    };
 
-            match e {
-                | Expr::Constant(f) => {
-                    Some(*f)
-                },
-                | Expr::BigInt(b) => {
-                    b.to_f64()
-                },
-                | _ => None,
-            }
-        };
+    let mut visit_stack = vec![(root_expr, false)];
 
-    let mut visit_stack =
-        vec![(root_expr, false)];
+    let mut output_stack: Vec<Expr> = Vec::new();
 
-    let mut output_stack: Vec<Expr> =
-        Vec::new();
-
-    while let Some((expr, visited)) =
-        visit_stack.pop()
-    {
-
+    while let Some((expr, visited)) = visit_stack.pop() {
         if visited {
-
             // Reconstruct node from children on output_stack
             match expr {
-                Expr::Add(_, _) => {
+                | Expr::Add(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::Add(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Sub(_, _) => {
+                | Expr::Sub(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::Sub(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Mul(_, _) => {
+                | Expr::Mul(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::Mul(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Div(_, _) => {
+                | Expr::Div(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::Div(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Power(_, _) => {
+                | Expr::Power(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::Power(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::LogBase(_, _) => {
+                | Expr::LogBase(_, _) => {
                     let rhs = output_stack.pop().unwrap();
                     let lhs = output_stack.pop().unwrap();
                     output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
                 },
-                Expr::Neg(_) => {
+                | Expr::Neg(_) => {
                     let inner = output_stack.pop().unwrap();
                     output_stack.push(Expr::Neg(Arc::new(inner)));
                 },
-                Expr::Sin(_) => {
+                | Expr::Sin(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.sin()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -777,7 +511,7 @@ fn force_bigint(
                         output_stack.push(Expr::Sin(Arc::new(v)));
                     }
                 },
-                Expr::Cos(_) => {
+                | Expr::Cos(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.cos()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -789,7 +523,7 @@ fn force_bigint(
                         output_stack.push(Expr::Cos(Arc::new(v)));
                     }
                 },
-                Expr::Tan(_) => {
+                | Expr::Tan(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.tan()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -801,7 +535,7 @@ fn force_bigint(
                         output_stack.push(Expr::Tan(Arc::new(v)));
                     }
                 },
-                Expr::Exp(_) => {
+                | Expr::Exp(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.exp()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -813,7 +547,7 @@ fn force_bigint(
                         output_stack.push(Expr::Exp(Arc::new(v)));
                     }
                 },
-                Expr::Log(_) => {
+                | Expr::Log(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.ln()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -825,15 +559,15 @@ fn force_bigint(
                         output_stack.push(Expr::Log(Arc::new(v)));
                     }
                 },
-                Expr::Abs(_) => {
+                | Expr::Abs(_) => {
                     let v = output_stack.pop().unwrap();
                     match v {
-                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
-                        Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
-                        _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                        | Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                        | Expr::Constant(f) => output_stack.push(Expr::Constant(f.abs())),
+                        | _ => output_stack.push(Expr::Abs(Arc::new(v))),
                     }
                 },
-                Expr::Sqrt(_) => {
+                | Expr::Sqrt(_) => {
                     let v = output_stack.pop().unwrap();
                     if let Some(f) = try_eval_float(&v).map(|x| x.sqrt()) {
                         if (f - f.round()).abs() < 1e-6 {
@@ -845,7 +579,7 @@ fn force_bigint(
                         output_stack.push(Expr::Sqrt(Arc::new(v)));
                     }
                 },
-                Expr::AddList(list) => {
+                | Expr::AddList(list) => {
                     let mut new_list = Vec::with_capacity(list.len());
                     for _ in 0..list.len() {
                         new_list.push(output_stack.pop().unwrap());
@@ -853,79 +587,41 @@ fn force_bigint(
                     new_list.reverse();
                     output_stack.push(Expr::AddList(new_list));
                 },
-                Expr::MulList(list) => {
+                | Expr::MulList(list) => {
                     let mut new_list = Vec::with_capacity(list.len());
                     for _ in 0..list.len() {
                         new_list.push(output_stack.pop().unwrap());
                     }
                     new_list.reverse();
                     output_stack.push(Expr::MulList(new_list));
+                }, // Leaves are pushed directly in the else block
+                | _ => {
+                    unreachable!(
+                        "Leaves or unhandled types should be processed before marking visited. Type: {:?}",
+                        std::mem::discriminant(&expr)
+                    )
                 },
-                // Leaves are pushed directly in the else block
-                _ => unreachable!("Leaves or unhandled types should be processed before marking visited. Type: {:?}", std::mem::discriminant(&expr)),
             }
         } else {
-
             // Process node
             match expr {
-                | Expr::Constant(f)
-                    if f.fract()
-                        == 0.0 =>
-                {
-
+                | Expr::Constant(f) if f.fract() == 0.0 => {
                     output_stack.push(Expr::BigInt(num_bigint::BigInt::from(f as i64)));
-                },
-                // Other leaves just pass through
-                | Expr::Constant(_)
-                | Expr::BigInt(_)
-                | Expr::Variable(_)
-                | Expr::Rational(_) => {
+                }, // Other leaves just pass through
+                | Expr::Constant(_) | Expr::BigInt(_) | Expr::Variable(_) | Expr::Rational(_) => {
+                    output_stack.push(expr);
+                }, // Recursive cases: push visited parent, then children (reverse order for stack)
+                | Expr::Add(ref a, ref b)
+                | Expr::Sub(ref a, ref b)
+                | Expr::Mul(ref a, ref b)
+                | Expr::Div(ref a, ref b)
+                | Expr::Power(ref a, ref b)
+                | Expr::LogBase(ref a, ref b) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    output_stack
-                        .push(expr);
-                },
-                // Recursive cases: push visited parent, then children (reverse order for stack)
-                | Expr::Add(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Sub(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Mul(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Div(
-                    ref a,
-                    ref b,
-                )
-                | Expr::Power(
-                    ref a,
-                    ref b,
-                )
-                | Expr::LogBase(
-                    ref a,
-                    ref b,
-                ) => {
+                    visit_stack.push((b.as_ref().clone(), false));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
-
-                    visit_stack.push((
-                        b.as_ref()
-                            .clone(),
-                        false,
-                    ));
-
-                    visit_stack.push((
-                        a.as_ref()
-                            .clone(),
-                        false,
-                    ));
+                    visit_stack.push((a.as_ref().clone(), false));
                 },
                 | Expr::Neg(ref a)
                 | Expr::Sin(ref a)
@@ -935,561 +631,357 @@ fn force_bigint(
                 | Expr::Log(ref a)
                 | Expr::Abs(ref a)
                 | Expr::Sqrt(ref a) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
-
-                    visit_stack.push((
-                        a.as_ref()
-                            .clone(),
-                        false,
-                    ));
+                    visit_stack.push((a.as_ref().clone(), false));
                 },
-                | Expr::AddList(
-                    ref list,
-                )
-                | Expr::MulList(
-                    ref list,
-                ) => {
+                | Expr::AddList(ref list) | Expr::MulList(ref list) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
-
-                    for item in list
-                        .iter()
-                        .rev()
-                    {
-
-                        visit_stack
-                            .push((
-                            item.clone(
-                            ),
-                            false,
-                        ));
+                    for item in list.iter().rev() {
+                        visit_stack.push((item.clone(), false));
                     }
-                },
-                // Leaves pass through
+                }, // Leaves pass through
                 | _ => {
-
-                    output_stack
-                        .push(expr);
+                    output_stack.push(expr);
                 },
             }
         }
     }
 
-    output_stack
-        .pop()
-        .unwrap_or(root_expr_clone)
+    output_stack.pop().unwrap_or(root_expr_clone)
 }
 
-fn force_bigint_eval(
-    root_expr: Expr
-) -> Expr {
-
+fn force_bigint_eval(root_expr: Expr) -> Expr {
     use std::sync::Arc;
 
     use num_traits::Signed;
     use num_traits::ToPrimitive;
     use num_traits::Zero;
 
-    let root = root_expr
-        .to_ast()
-        .unwrap_or(root_expr.clone());
+    let root = root_expr.to_ast().unwrap_or(root_expr.clone());
 
-    let try_eval_float =
-        |e: &Expr| -> Option<f64> {
+    let try_eval_float = |e: &Expr| -> Option<f64> {
+        match e {
+            | Expr::Constant(f) => Some(*f),
+            | Expr::BigInt(b) => b.to_f64(),
+            | _ => None,
+        }
+    };
 
-            match e {
-                | Expr::Constant(f) => {
-                    Some(*f)
-                },
-                | Expr::BigInt(b) => {
-                    b.to_f64()
-                },
-                | _ => None,
-            }
-        };
+    let mut visit_stack = vec![(root, false)];
 
-    let mut visit_stack =
-        vec![(root, false)];
+    let mut output_stack: Vec<Expr> = Vec::new();
 
-    let mut output_stack: Vec<Expr> =
-        Vec::new();
-
-    while let Some((expr, visited)) =
-        visit_stack.pop()
-    {
-
+    while let Some((expr, visited)) = visit_stack.pop() {
         if visited {
-
             match expr {
                 | Expr::Add(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la + lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la + lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la + lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la + lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Add(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Add(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) + lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Add(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Add(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la + lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Add(Arc::new(l), Arc::new(r))),
                     }
                 },
                 | Expr::Sub(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la - lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la - lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la - lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la - lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Sub(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Sub(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) - lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Sub(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Sub(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la - lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Sub(Arc::new(l), Arc::new(r))),
                     }
                 },
                 | Expr::Mul(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) => output_stack.push(Expr::BigInt(la * lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la * lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => {
+                        | (Expr::BigInt(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::BigInt(la * lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la * lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
                             if la.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Mul(Arc::new(Expr::BigInt(la)), Arc::new(Expr::Constant(lb))));
+                                output_stack.push(Expr::Mul(
+                                    Arc::new(Expr::BigInt(la)),
+                                    Arc::new(Expr::Constant(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) * lb));
                             }
                         },
-                        (Expr::Constant(la), Expr::BigInt(lb)) => {
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
                             if lb.abs() > BigInt::from(1_000_000_000_000_i64) {
-                                output_stack.push(Expr::Mul(Arc::new(Expr::Constant(la)), Arc::new(Expr::BigInt(lb))));
+                                output_stack.push(Expr::Mul(
+                                    Arc::new(Expr::Constant(la)),
+                                    Arc::new(Expr::BigInt(lb)),
+                                ));
                             } else {
                                 output_stack.push(Expr::Constant(la * lb.to_f64().unwrap_or(0.0)));
                             }
                         },
-                        (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
+                        | (l, r) => output_stack.push(Expr::Mul(Arc::new(l), Arc::new(r))),
                     }
                 },
                 | Expr::Div(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
                     match (lhs, rhs) {
-                        (Expr::BigInt(la), Expr::BigInt(lb)) if !lb.is_zero() && &la % &lb == BigInt::from(0) => output_stack.push(Expr::BigInt(la / lb)),
-                        (Expr::Constant(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la / lb)),
-                        (Expr::BigInt(la), Expr::Constant(lb)) => output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb)),
-                        (Expr::Constant(la), Expr::BigInt(lb)) => output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0))),
-                        (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
+                        | (Expr::BigInt(la), Expr::BigInt(lb))
+                            if !lb.is_zero() && &la % &lb == BigInt::from(0) =>
+                        {
+                            output_stack.push(Expr::BigInt(la / lb))
+                        },
+                        | (Expr::Constant(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la / lb))
+                        },
+                        | (Expr::BigInt(la), Expr::Constant(lb)) => {
+                            output_stack.push(Expr::Constant(la.to_f64().unwrap_or(0.0) / lb))
+                        },
+                        | (Expr::Constant(la), Expr::BigInt(lb)) => {
+                            output_stack.push(Expr::Constant(la / lb.to_f64().unwrap_or(0.0)))
+                        },
+                        | (l, r) => output_stack.push(Expr::Div(Arc::new(l), Arc::new(r))),
                     }
                 },
                 | Expr::Power(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
                     match (lhs, rhs) {
-                        (Expr::BigInt(base), Expr::BigInt(exp)) => {
+                        | (Expr::BigInt(base), Expr::BigInt(exp)) => {
                             if let Some(e) = exp.to_u32() {
                                 output_stack.push(Expr::BigInt(base.pow(e)));
                             } else if exp == BigInt::from(0) {
                                 output_stack.push(Expr::BigInt(BigInt::from(1)));
                             } else {
-                                output_stack.push(Expr::Power(Arc::new(Expr::BigInt(base)), Arc::new(Expr::BigInt(exp))));
+                                output_stack.push(Expr::Power(
+                                    Arc::new(Expr::BigInt(base)),
+                                    Arc::new(Expr::BigInt(exp)),
+                                ));
                             }
-                        }
-                        (Expr::Constant(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.powf(e))),
-                        (Expr::BigInt(b), Expr::Constant(e)) => output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e))),
-                        (Expr::Constant(b), Expr::BigInt(e)) => output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0)))),
-                        (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
+                        },
+                        | (Expr::Constant(b), Expr::Constant(e)) => {
+                            output_stack.push(Expr::Constant(b.powf(e)))
+                        },
+                        | (Expr::BigInt(b), Expr::Constant(e)) => {
+                            output_stack.push(Expr::Constant(b.to_f64().unwrap_or(0.0).powf(e)))
+                        },
+                        | (Expr::Constant(b), Expr::BigInt(e)) => {
+                            output_stack.push(Expr::Constant(b.powf(e.to_f64().unwrap_or(0.0))))
+                        },
+                        | (l, r) => output_stack.push(Expr::Power(Arc::new(l), Arc::new(r))),
                     }
                 },
                 | Expr::Neg(_) => {
-
-                    let inner =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let inner = output_stack.pop().unwrap();
 
                     match inner {
-                        Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
-                        other => output_stack.push(Expr::Neg(Arc::new(other))),
+                        | Expr::BigInt(n) => output_stack.push(Expr::BigInt(-n)),
+                        | other => output_stack.push(Expr::Neg(Arc::new(other))),
                     }
                 },
                 | Expr::Sin(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| {
-
-                            x.sin()
-                        })
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sin()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Sin(Arc::new(v)));
                     }
                 },
                 | Expr::Cos(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| {
-
-                            x.cos()
-                        })
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.cos()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Cos(Arc::new(v)));
                     }
                 },
                 | Expr::Tan(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| {
-
-                            x.tan()
-                        })
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.tan()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Tan(Arc::new(v)));
                     }
                 },
                 | Expr::Exp(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| {
-
-                            x.exp()
-                        })
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.exp()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Exp(Arc::new(v)));
                     }
                 },
                 | Expr::Log(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| x.ln())
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.ln()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Log(Arc::new(v)));
                     }
                 },
                 | Expr::Abs(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                    {
-
+                    if let Some(f) = try_eval_float(&v) {
                         output_stack.push(Expr::Constant(f.abs()));
                     } else {
-
                         match v {
-                            Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
-                            _ => output_stack.push(Expr::Abs(Arc::new(v))),
+                            | Expr::BigInt(n) => output_stack.push(Expr::BigInt(n.abs())),
+                            | _ => output_stack.push(Expr::Abs(Arc::new(v))),
                         }
                     }
                 },
                 | Expr::Sqrt(_) => {
+                    let v = output_stack.pop().unwrap();
 
-                    let v =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    if let Some(f) =
-                        try_eval_float(
-                            &v,
-                        )
-                        .map(|x| {
-
-                            x.sqrt()
-                        })
-                    {
-
-                        if (f - f
-                            .round())
-                        .abs()
-                            < 1e-6
-                        {
-
+                    if let Some(f) = try_eval_float(&v).map(|x| x.sqrt()) {
+                        if (f - f.round()).abs() < 1e-6 {
                             output_stack.push(Expr::BigInt(BigInt::from(f.round() as i64)));
                         } else {
-
                             output_stack.push(Expr::Constant(f));
                         }
                     } else {
-
                         output_stack.push(Expr::Sqrt(Arc::new(v)));
                     }
                 },
-                | Expr::LogBase(
-                    _,
-                    _,
-                ) => {
+                | Expr::LogBase(_, _) => {
+                    let rhs = output_stack.pop().unwrap();
 
-                    let rhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
+                    let lhs = output_stack.pop().unwrap();
 
-                    let lhs =
-                        output_stack
-                            .pop()
-                            .unwrap();
-
-                    output_stack.push(
-                        Expr::LogBase(
-                            Arc::new(
-                                lhs,
-                            ),
-                            Arc::new(
-                                rhs,
-                            ),
-                        ),
-                    );
+                    output_stack.push(Expr::LogBase(Arc::new(lhs), Arc::new(rhs)));
                 },
-                | Expr::AddList(
-                    list,
-                ) => {
-
-                    let len =
-                        list.len();
+                | Expr::AddList(list) => {
+                    let len = list.len();
 
                     let mut new_list = Vec::with_capacity(len);
 
-                    for _ in 0 .. len {
-
+                    for _ in 0..len {
                         new_list.push(output_stack.pop().unwrap());
                     }
 
                     new_list.reverse();
 
-                    output_stack.push(
-                        Expr::AddList(
-                            new_list,
-                        ),
-                    );
+                    output_stack.push(Expr::AddList(new_list));
                 },
-                | Expr::MulList(
-                    list,
-                ) => {
-
-                    let len =
-                        list.len();
+                | Expr::MulList(list) => {
+                    let len = list.len();
 
                     let mut new_list = Vec::with_capacity(len);
 
-                    for _ in 0 .. len {
-
+                    for _ in 0..len {
                         new_list.push(output_stack.pop().unwrap());
                     }
 
                     new_list.reverse();
 
-                    output_stack.push(
-                        Expr::MulList(
-                            new_list,
-                        ),
-                    );
+                    output_stack.push(Expr::MulList(new_list));
                 },
                 | _ => {
-
-                    output_stack
-                        .push(expr);
+                    output_stack.push(expr);
                 },
             }
         } else {
-
             let processed_leaf = match &expr {
-                Expr::Constant(f) if f.fract() == 0.0 => Some(Expr::BigInt(BigInt::from(*f as i64))),
-                Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())),
-                Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => Some(expr.clone()),
-                _ => None,
+                | Expr::Constant(f) if f.fract() == 0.0 => {
+                    Some(Expr::BigInt(BigInt::from(*f as i64)))
+                },
+                | Expr::Rational(r) if r.is_integer() => Some(Expr::BigInt(r.to_integer())),
+                | Expr::Constant(_) | Expr::Rational(_) | Expr::Variable(_) | Expr::BigInt(_) => {
+                    Some(expr.clone())
+                },
+                | _ => None,
             };
 
-            if let Some(leaf) =
-                processed_leaf
-            {
-
+            if let Some(leaf) = processed_leaf {
                 output_stack.push(leaf);
 
                 continue;
@@ -1501,35 +993,12 @@ fn force_bigint_eval(
                 | Expr::Mul(a, b)
                 | Expr::Div(a, b)
                 | Expr::Power(a, b)
-                | Expr::LogBase(
-                    a,
-                    b,
-                ) => {
+                | Expr::LogBase(a, b) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
+                    visit_stack.push((b.to_ast().unwrap_or(b.as_ref().clone()), false));
 
-                    visit_stack.push((
-                        b.to_ast()
-                            .unwrap_or(
-                            b.as_ref()
-                                .clone(
-                                ),
-                        ),
-                        false,
-                    ));
-
-                    visit_stack.push((
-                        a.to_ast()
-                            .unwrap_or(
-                            a.as_ref()
-                                .clone(
-                                ),
-                        ),
-                        false,
-                    ));
+                    visit_stack.push((a.to_ast().unwrap_or(a.as_ref().clone()), false));
                 },
                 | Expr::Neg(a)
                 | Expr::Sin(a)
@@ -1539,52 +1008,23 @@ fn force_bigint_eval(
                 | Expr::Log(a)
                 | Expr::Abs(a)
                 | Expr::Sqrt(a) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
-
-                    visit_stack.push((
-                        a.to_ast()
-                            .unwrap_or(
-                            a.as_ref()
-                                .clone(
-                                ),
-                        ),
-                        false,
-                    ));
+                    visit_stack.push((a.to_ast().unwrap_or(a.as_ref().clone()), false));
                 },
-                | Expr::AddList(
-                    list,
-                )
-                | Expr::MulList(
-                    list,
-                ) => {
+                | Expr::AddList(list) | Expr::MulList(list) => {
+                    visit_stack.push((expr.clone(), true));
 
-                    visit_stack.push((
-                        expr.clone(),
-                        true,
-                    ));
-
-                    for item in list
-                        .iter()
-                        .rev()
-                    {
-
+                    for item in list.iter().rev() {
                         visit_stack.push((item.to_ast().unwrap_or(item.clone()), false));
                     }
                 },
                 | _ => {
-
-                    output_stack
-                        .push(expr);
+                    output_stack.push(expr);
                 },
             }
         }
     }
 
-    output_stack
-        .pop()
-        .unwrap_or(root_expr)
+    output_stack.pop().unwrap_or(root_expr)
 }

@@ -14,9 +14,7 @@
 
 //! This is the shared library for the arxiv-daily project.
 
-#![allow(
-    clippy::empty_line_after_outer_attr
-)]
+#![allow(clippy::empty_line_after_outer_attr)]
 
 use bitcode::Decode;
 use bitcode::Encode;
@@ -25,86 +23,44 @@ use chrono::Utc;
 use serde::Deserialize;
 use serde::Serialize;
 
-#[derive(
-    Debug,
-    Clone,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    PartialEq,
-)]
+#[derive(Debug, Clone, Serialize, Deserialize, Encode, Decode, PartialEq)]
 
 pub struct Paper {
     pub id: String,
     pub url: String,
     pub title: String,
-    pub updated: i64, /* Timestamp in seconds */
-    pub published: i64, /* Timestamp in seconds */
+    pub updated: i64,   // Timestamp in seconds
+    pub published: i64, // Timestamp in seconds
     pub summary: String,
     pub primary_category: String,
     pub categories: String,
-    pub authors: String, /* JSON array of strings */
+    pub authors: String, // JSON array of strings
     pub pdf_link: Option<String>,
 }
 
 impl Paper {
-    pub fn authors_list(
-        &self
-    ) -> Vec<String> {
-
-        serde_json::from_str(
-            &self.authors,
-        )
-        .unwrap_or_else(|_| {
-
-            vec![self.authors.clone()]
-        })
+    pub fn authors_list(&self) -> Vec<String> {
+        serde_json::from_str(&self.authors).unwrap_or_else(|_| vec![self.authors.clone()])
     }
 
-    pub fn primary_category_name(
-        &self
-    ) -> &'static str {
-
-        Category::get_name(
-            &self.primary_category,
-        )
+    pub fn primary_category_name(&self) -> &'static str {
+        Category::get_name(&self.primary_category)
     }
 
-    pub fn updated_date(
-        &self
-    ) -> DateTime<Utc> {
-
-        DateTime::<Utc>::from_timestamp(
-            self.updated,
-            0,
-        )
-        .unwrap_or_default()
+    pub fn updated_date(&self) -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp(self.updated, 0).unwrap_or_default()
     }
 
-    pub fn published_date(
-        &self
-    ) -> DateTime<Utc> {
-
-        DateTime::<Utc>::from_timestamp(
-            self.published,
-            0,
-        )
-        .unwrap_or_default()
+    pub fn published_date(&self) -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp(self.published, 0).unwrap_or_default()
     }
 }
 
 pub struct Category;
 
 impl Category {
-    pub const ALL_CATEGORIES: &[(
-        &'static str,
-        &'static str,
-    )] = &[
-        (
-            "astro-ph",
-            "Astrophysics",
-        ),
+    pub const ALL_CATEGORIES: &[(&'static str, &'static str)] = &[
+        ("astro-ph", "Astrophysics"),
         (
             "astro-ph.CO",
             "Cosmology and \
@@ -115,10 +71,7 @@ impl Category {
             "Earth and Planetary \
              Astrophysics",
         ),
-        (
-            "astro-ph.GA",
-            "Astrophysics of Galaxies",
-        ),
+        ("astro-ph.GA", "Astrophysics of Galaxies"),
         (
             "astro-ph.HE",
             "High Energy \
@@ -144,35 +97,17 @@ impl Category {
             "Mesoscale and Nanoscale \
              Physics",
         ),
-        (
-            "cond-mat.mtrl-sci",
-            "Materials Science",
-        ),
-        (
-            "cond-mat.other",
-            "Other Condensed Matter",
-        ),
-        (
-            "cond-mat.quant-gas",
-            "Quantum Gases",
-        ),
-        (
-            "cond-mat.soft",
-            "Soft Condensed Matter",
-        ),
-        (
-            "cond-mat.stat-mech",
-            "Statistical Mechanics",
-        ),
+        ("cond-mat.mtrl-sci", "Materials Science"),
+        ("cond-mat.other", "Other Condensed Matter"),
+        ("cond-mat.quant-gas", "Quantum Gases"),
+        ("cond-mat.soft", "Soft Condensed Matter"),
+        ("cond-mat.stat-mech", "Statistical Mechanics"),
         (
             "cond-mat.str-el",
             "Strongly Correlated \
              Electrons",
         ),
-        (
-            "cond-mat.supr-con",
-            "Superconductivity",
-        ),
+        ("cond-mat.supr-con", "Superconductivity"),
         (
             "gr-qc",
             "General Relativity and \
@@ -198,19 +133,13 @@ impl Category {
             "High Energy Physics - \
              Theory",
         ),
-        (
-            "math-ph",
-            "Mathematical Physics",
-        ),
+        ("math-ph", "Mathematical Physics"),
         (
             "nlin.AO",
             "Adaptation and \
              Self-Organizing Systems",
         ),
-        (
-            "nlin.CD",
-            "Chaotic Dynamics",
-        ),
+        ("nlin.CD", "Chaotic Dynamics"),
         (
             "nlin.CG",
             "Cellular Automata and \
@@ -226,65 +155,29 @@ impl Category {
             "Exactly Solvable and \
              Integrable Systems",
         ),
-        (
-            "nucl-ex",
-            "Nuclear Experiment",
-        ),
-        (
-            "nucl-th",
-            "Nuclear Theory",
-        ),
-        (
-            "physics.acc-ph",
-            "Accelerator Physics",
-        ),
-        (
-            "physics.app-ph",
-            "Applied Physics",
-        ),
+        ("nucl-ex", "Nuclear Experiment"),
+        ("nucl-th", "Nuclear Theory"),
+        ("physics.acc-ph", "Accelerator Physics"),
+        ("physics.app-ph", "Applied Physics"),
         (
             "physics.ao-ph",
             "Atmospheric and Oceanic \
              Physics",
         ),
-        (
-            "physics.atom-ph",
-            "Atomic Physics",
-        ),
-        (
-            "physics.bio-ph",
-            "Biological Physics",
-        ),
-        (
-            "physics.chem-ph",
-            "Chemical Physics",
-        ),
-        (
-            "physics.class-ph",
-            "Classical Physics",
-        ),
-        (
-            "physics.comp-ph",
-            "Computational Physics",
-        ),
+        ("physics.atom-ph", "Atomic Physics"),
+        ("physics.bio-ph", "Biological Physics"),
+        ("physics.chem-ph", "Chemical Physics"),
+        ("physics.class-ph", "Classical Physics"),
+        ("physics.comp-ph", "Computational Physics"),
         (
             "physics.data-an",
             "Data Analysis, \
              Statistics and \
              Probability",
         ),
-        (
-            "physics.flu-dyn",
-            "Fluid Dynamics",
-        ),
-        (
-            "physics.gen-ph",
-            "General Physics",
-        ),
-        (
-            "physics.geo-ph",
-            "Geophysics",
-        ),
+        ("physics.flu-dyn", "Fluid Dynamics"),
+        ("physics.gen-ph", "General Physics"),
+        ("physics.geo-ph", "Geophysics"),
         (
             "physics.hist-ph",
             "History and Philosophy \
@@ -295,105 +188,51 @@ impl Category {
             "Instrumentation and \
              Detectors",
         ),
-        (
-            "physics.med-ph",
-            "Medical Physics",
-        ),
-        (
-            "physics.optics",
-            "Optics",
-        ),
-        (
-            "physics.plasm-ph",
-            "Plasma Physics",
-        ),
-        (
-            "physics.pop-ph",
-            "Popular Physics",
-        ),
-        (
-            "physics.soc-ph",
-            "Physics and Society",
-        ),
-        (
-            "physics.space-ph",
-            "Space Physics",
-        ),
-        (
-            "quant-ph",
-            "Quantum Physics",
-        ),
-        (
-            "cs.AI",
-            "Artificial Intelligence",
-        ),
-        (
-            "cs.AR",
-            "Hardware Architecture",
-        ),
-        (
-            "cs.CC",
-            "Computational Complexity",
-        ),
+        ("physics.med-ph", "Medical Physics"),
+        ("physics.optics", "Optics"),
+        ("physics.plasm-ph", "Plasma Physics"),
+        ("physics.pop-ph", "Popular Physics"),
+        ("physics.soc-ph", "Physics and Society"),
+        ("physics.space-ph", "Space Physics"),
+        ("quant-ph", "Quantum Physics"),
+        ("cs.AI", "Artificial Intelligence"),
+        ("cs.AR", "Hardware Architecture"),
+        ("cs.CC", "Computational Complexity"),
         (
             "cs.CE",
             "Computational \
              Engineering, Finance, \
              and Science",
         ),
-        (
-            "cs.CG",
-            "Computational Geometry",
-        ),
-        (
-            "cs.CL",
-            "Computation and Language",
-        ),
-        (
-            "cs.CR",
-            "Cryptography and Security",
-        ),
+        ("cs.CG", "Computational Geometry"),
+        ("cs.CL", "Computation and Language"),
+        ("cs.CR", "Cryptography and Security"),
         (
             "cs.CV",
             "Computer Vision and \
              Pattern Recognition",
         ),
-        (
-            "cs.CY",
-            "Computers and Society",
-        ),
+        ("cs.CY", "Computers and Society"),
         ("cs.DB", "Databases"),
         (
             "cs.DC",
             "Distributed, Parallel, \
              and Cluster Computing",
         ),
-        (
-            "cs.DL",
-            "Digital Libraries",
-        ),
-        (
-            "cs.DM",
-            "Discrete Mathematics",
-        ),
+        ("cs.DL", "Digital Libraries"),
+        ("cs.DM", "Discrete Mathematics"),
         (
             "cs.DS",
             "Data Structures and \
              Algorithms",
         ),
-        (
-            "cs.ET",
-            "Emerging Technologies",
-        ),
+        ("cs.ET", "Emerging Technologies"),
         (
             "cs.FL",
             "Formal Languages and \
              Automata Theory",
         ),
-        (
-            "cs.GL",
-            "General Literature",
-        ),
+        ("cs.GL", "General Literature"),
         ("cs.GR", "Graphics"),
         (
             "cs.GT",
@@ -405,38 +244,14 @@ impl Category {
             "Human-Computer \
              Interaction",
         ),
-        (
-            "cs.IR",
-            "Information Retrieval",
-        ),
-        (
-            "cs.IT",
-            "Information Theory",
-        ),
-        (
-            "cs.LG",
-            "Machine Learning",
-        ),
-        (
-            "cs.LO",
-            "Logic in Computer Science",
-        ),
-        (
-            "cs.MA",
-            "Multiagent Systems",
-        ),
-        (
-            "cs.MM",
-            "Multimedia",
-        ),
-        (
-            "cs.MS",
-            "Mathematical Software",
-        ),
-        (
-            "cs.NA",
-            "Numerical Analysis",
-        ),
+        ("cs.IR", "Information Retrieval"),
+        ("cs.IT", "Information Theory"),
+        ("cs.LG", "Machine Learning"),
+        ("cs.LO", "Logic in Computer Science"),
+        ("cs.MA", "Multiagent Systems"),
+        ("cs.MM", "Multimedia"),
+        ("cs.MS", "Mathematical Software"),
+        ("cs.NA", "Numerical Analysis"),
         (
             "cs.NE",
             "Neural and Evolutionary \
@@ -447,212 +262,71 @@ impl Category {
             "Networking and Internet \
              Architecture",
         ),
-        (
-            "cs.OH",
-            "Other Computer Science",
-        ),
-        (
-            "cs.OS",
-            "Operating Systems",
-        ),
-        (
-            "cs.PF",
-            "Performance",
-        ),
-        (
-            "cs.PL",
-            "Programming Languages",
-        ),
+        ("cs.OH", "Other Computer Science"),
+        ("cs.OS", "Operating Systems"),
+        ("cs.PF", "Performance"),
+        ("cs.PL", "Programming Languages"),
         ("cs.RO", "Robotics"),
-        (
-            "cs.SC",
-            "Symbolic Computation",
-        ),
+        ("cs.SC", "Symbolic Computation"),
         ("cs.SD", "Sound"),
-        (
-            "cs.SE",
-            "Software Engineering",
-        ),
+        ("cs.SE", "Software Engineering"),
         (
             "cs.SI",
             "Social and Information \
              Networks",
         ),
-        (
-            "cs.SY",
-            "Systems and Control",
-        ),
-        (
-            "math.AC",
-            "Commutative Algebra",
-        ),
-        (
-            "math.AG",
-            "Algebraic Geometry",
-        ),
-        (
-            "math.AP",
-            "Analysis of PDEs",
-        ),
-        (
-            "math.AT",
-            "Algebraic Topology",
-        ),
+        ("cs.SY", "Systems and Control"),
+        ("math.AC", "Commutative Algebra"),
+        ("math.AG", "Algebraic Geometry"),
+        ("math.AP", "Analysis of PDEs"),
+        ("math.AT", "Algebraic Topology"),
         (
             "math.CA",
             "Classical Analysis and \
              ODEs",
         ),
-        (
-            "math.CO",
-            "Combinatorics",
-        ),
-        (
-            "math.CT",
-            "Category Theory",
-        ),
-        (
-            "math.CV",
-            "Complex Variables",
-        ),
-        (
-            "math.DG",
-            "Differential Geometry",
-        ),
-        (
-            "math.DS",
-            "Dynamical Systems",
-        ),
-        (
-            "math.FA",
-            "Functional Analysis",
-        ),
-        (
-            "math.GM",
-            "General Mathematics",
-        ),
-        (
-            "math.GN",
-            "General Topology",
-        ),
-        (
-            "math.GR",
-            "Group Theory",
-        ),
-        (
-            "math.GT",
-            "Geometric Topology",
-        ),
-        (
-            "math.HO",
-            "History and Overview",
-        ),
-        (
-            "math.IT",
-            "Information Theory",
-        ),
-        (
-            "math.KT",
-            "K-Theory and Homology",
-        ),
+        ("math.CO", "Combinatorics"),
+        ("math.CT", "Category Theory"),
+        ("math.CV", "Complex Variables"),
+        ("math.DG", "Differential Geometry"),
+        ("math.DS", "Dynamical Systems"),
+        ("math.FA", "Functional Analysis"),
+        ("math.GM", "General Mathematics"),
+        ("math.GN", "General Topology"),
+        ("math.GR", "Group Theory"),
+        ("math.GT", "Geometric Topology"),
+        ("math.HO", "History and Overview"),
+        ("math.IT", "Information Theory"),
+        ("math.KT", "K-Theory and Homology"),
         ("math.LO", "Logic"),
-        (
-            "math.MG",
-            "Metric Geometry",
-        ),
-        (
-            "math.MP",
-            "Mathematical Physics",
-        ),
-        (
-            "math.NA",
-            "Numerical Analysis",
-        ),
-        (
-            "math.NT",
-            "Number Theory",
-        ),
-        (
-            "math.OA",
-            "Operator Algebras",
-        ),
-        (
-            "math.OC",
-            "Optimization and Control",
-        ),
-        (
-            "math.PR",
-            "Probability",
-        ),
-        (
-            "math.QA",
-            "Quantum Algebra",
-        ),
-        (
-            "math.RA",
-            "Rings and Algebras",
-        ),
-        (
-            "math.RT",
-            "Representation Theory",
-        ),
-        (
-            "math.SG",
-            "Symplectic Geometry",
-        ),
-        (
-            "math.SP",
-            "Spectral Theory",
-        ),
-        (
-            "math.ST",
-            "Statistics Theory",
-        ),
-        (
-            "q-bio.BM",
-            "Biomolecules",
-        ),
-        (
-            "q-bio.CB",
-            "Cell Behavior",
-        ),
-        (
-            "q-bio.GN",
-            "Genomics",
-        ),
-        (
-            "q-bio.MN",
-            "Molecular Networks",
-        ),
-        (
-            "q-bio.NC",
-            "Neurons and Cognition",
-        ),
+        ("math.MG", "Metric Geometry"),
+        ("math.MP", "Mathematical Physics"),
+        ("math.NA", "Numerical Analysis"),
+        ("math.NT", "Number Theory"),
+        ("math.OA", "Operator Algebras"),
+        ("math.OC", "Optimization and Control"),
+        ("math.PR", "Probability"),
+        ("math.QA", "Quantum Algebra"),
+        ("math.RA", "Rings and Algebras"),
+        ("math.RT", "Representation Theory"),
+        ("math.SG", "Symplectic Geometry"),
+        ("math.SP", "Spectral Theory"),
+        ("math.ST", "Statistics Theory"),
+        ("q-bio.BM", "Biomolecules"),
+        ("q-bio.CB", "Cell Behavior"),
+        ("q-bio.GN", "Genomics"),
+        ("q-bio.MN", "Molecular Networks"),
+        ("q-bio.NC", "Neurons and Cognition"),
         (
             "q-bio.OT",
             "Other Quantitative \
              Biology",
         ),
-        (
-            "q-bio.PE",
-            "Populations and Evolution",
-        ),
-        (
-            "q-bio.QM",
-            "Quantitative Methods",
-        ),
-        (
-            "q-bio.SC",
-            "Subcellular Processes",
-        ),
-        (
-            "q-bio.TO",
-            "Tissues and Organs",
-        ),
-        (
-            "math.ST",
-            "Statistics Theory",
-        ),
+        ("q-bio.PE", "Populations and Evolution"),
+        ("q-bio.QM", "Quantitative Methods"),
+        ("q-bio.SC", "Subcellular Processes"),
+        ("q-bio.TO", "Tissues and Organs"),
+        ("math.ST", "Statistics Theory"),
         (
             "eess.AS",
             "Audio and Speech \
@@ -663,36 +337,16 @@ impl Category {
             "Image and Video \
              Processing",
         ),
-        (
-            "eess.SP",
-            "Signal Processing",
-        ),
-        (
-            "eess.SY",
-            "Systems and Control",
-        ),
-        (
-            "econ.EM",
-            "Econometrics",
-        ),
-        (
-            "econ.GN",
-            "General Economics",
-        ),
-        (
-            "econ.TH",
-            "Theoretical Economics",
-        ),
+        ("eess.SP", "Signal Processing"),
+        ("eess.SY", "Systems and Control"),
+        ("econ.EM", "Econometrics"),
+        ("econ.GN", "General Economics"),
+        ("econ.TH", "Theoretical Economics"),
     ];
 
-    pub fn get_name(
-        code: &str
-    ) -> &'static str {
-
+    pub fn get_name(code: &str) -> &'static str {
         match code {
-            | "astro-ph" => {
-                "Astrophysics"
-            },
+            | "astro-ph" => "Astrophysics",
             | "astro-ph.CO" => {
                 "Cosmology and \
                  Nongalactic \
@@ -728,28 +382,16 @@ impl Category {
                 "Mesoscale and \
                  Nanoscale Physics"
             },
-            | "cond-mat.mtrl-sci" => {
-                "Materials Science"
-            },
-            | "cond-mat.other" => {
-                "Other Condensed Matter"
-            },
-            | "cond-mat.quant-gas" => {
-                "Quantum Gases"
-            },
-            | "cond-mat.soft" => {
-                "Soft Condensed Matter"
-            },
-            | "cond-mat.stat-mech" => {
-                "Statistical Mechanics"
-            },
+            | "cond-mat.mtrl-sci" => "Materials Science",
+            | "cond-mat.other" => "Other Condensed Matter",
+            | "cond-mat.quant-gas" => "Quantum Gases",
+            | "cond-mat.soft" => "Soft Condensed Matter",
+            | "cond-mat.stat-mech" => "Statistical Mechanics",
             | "cond-mat.str-el" => {
                 "Strongly Correlated \
                  Electrons"
             },
-            | "cond-mat.supr-con" => {
-                "Superconductivity"
-            },
+            | "cond-mat.supr-con" => "Superconductivity",
             | "gr-qc" => {
                 "General Relativity \
                  and Quantum Cosmology"
@@ -770,17 +412,13 @@ impl Category {
                 "High Energy Physics - \
                  Theory"
             },
-            | "math-ph" => {
-                "Mathematical Physics"
-            },
+            | "math-ph" => "Mathematical Physics",
             | "nlin.AO" => {
                 "Adaptation and \
                  Self-Organizing \
                  Systems"
             },
-            | "nlin.CD" => {
-                "Chaotic Dynamics"
-            },
+            | "nlin.CD" => "Chaotic Dynamics",
             | "nlin.CG" => {
                 "Cellular Automata and \
                  Lattice Gases"
@@ -793,51 +431,27 @@ impl Category {
                 "Exactly Solvable and \
                  Integrable Systems"
             },
-            | "nucl-ex" => {
-                "Nuclear Experiment"
-            },
-            | "nucl-th" => {
-                "Nuclear Theory"
-            },
-            | "physics.acc-ph" => {
-                "Accelerator Physics"
-            },
-            | "physics.app-ph" => {
-                "Applied Physics"
-            },
+            | "nucl-ex" => "Nuclear Experiment",
+            | "nucl-th" => "Nuclear Theory",
+            | "physics.acc-ph" => "Accelerator Physics",
+            | "physics.app-ph" => "Applied Physics",
             | "physics.ao-ph" => {
                 "Atmospheric and \
                  Oceanic Physics"
             },
-            | "physics.atom-ph" => {
-                "Atomic Physics"
-            },
-            | "physics.bio-ph" => {
-                "Biological Physics"
-            },
-            | "physics.chem-ph" => {
-                "Chemical Physics"
-            },
-            | "physics.class-ph" => {
-                "Classical Physics"
-            },
-            | "physics.comp-ph" => {
-                "Computational Physics"
-            },
+            | "physics.atom-ph" => "Atomic Physics",
+            | "physics.bio-ph" => "Biological Physics",
+            | "physics.chem-ph" => "Chemical Physics",
+            | "physics.class-ph" => "Classical Physics",
+            | "physics.comp-ph" => "Computational Physics",
             | "physics.data-an" => {
                 "Data Analysis, \
                  Statistics and \
                  Probability"
             },
-            | "physics.flu-dyn" => {
-                "Fluid Dynamics"
-            },
-            | "physics.gen-ph" => {
-                "General Physics"
-            },
-            | "physics.geo-ph" => {
-                "Geophysics"
-            },
+            | "physics.flu-dyn" => "Fluid Dynamics",
+            | "physics.gen-ph" => "General Physics",
+            | "physics.geo-ph" => "Geophysics",
             | "physics.hist-ph" => {
                 "History and \
                  Philosophy of Physics"
@@ -846,34 +460,18 @@ impl Category {
                 "Instrumentation and \
                  Detectors"
             },
-            | "physics.med-ph" => {
-                "Medical Physics"
-            },
-            | "physics.optics" => {
-                "Optics"
-            },
-            | "physics.plasm-ph" => {
-                "Plasma Physics"
-            },
-            | "physics.pop-ph" => {
-                "Popular Physics"
-            },
-            | "physics.soc-ph" => {
-                "Physics and Society"
-            },
-            | "physics.space-ph" => {
-                "Space Physics"
-            },
-            | "quant-ph" => {
-                "Quantum Physics"
-            },
+            | "physics.med-ph" => "Medical Physics",
+            | "physics.optics" => "Optics",
+            | "physics.plasm-ph" => "Plasma Physics",
+            | "physics.pop-ph" => "Popular Physics",
+            | "physics.soc-ph" => "Physics and Society",
+            | "physics.space-ph" => "Space Physics",
+            | "quant-ph" => "Quantum Physics",
             | "cs.AI" => {
                 "Artificial \
                  Intelligence"
             },
-            | "cs.AR" => {
-                "Hardware Architecture"
-            },
+            | "cs.AR" => "Hardware Architecture",
             | "cs.CC" => {
                 "Computational \
                  Complexity"
@@ -883,9 +481,7 @@ impl Category {
                  Engineering, Finance, \
                  and Science"
             },
-            | "cs.CG" => {
-                "Computational Geometry"
-            },
+            | "cs.CG" => "Computational Geometry",
             | "cs.CL" => {
                 "Computation and \
                  Language"
@@ -898,35 +494,25 @@ impl Category {
                 "Computer Vision and \
                  Pattern Recognition"
             },
-            | "cs.CY" => {
-                "Computers and Society"
-            },
+            | "cs.CY" => "Computers and Society",
             | "cs.DB" => "Databases",
             | "cs.DC" => {
                 "Distributed, \
                  Parallel, and Cluster \
                  Computing"
             },
-            | "cs.DL" => {
-                "Digital Libraries"
-            },
-            | "cs.DM" => {
-                "Discrete Mathematics"
-            },
+            | "cs.DL" => "Digital Libraries",
+            | "cs.DM" => "Discrete Mathematics",
             | "cs.DS" => {
                 "Data Structures and \
                  Algorithms"
             },
-            | "cs.ET" => {
-                "Emerging Technologies"
-            },
+            | "cs.ET" => "Emerging Technologies",
             | "cs.FL" => {
                 "Formal Languages and \
                  Automata Theory"
             },
-            | "cs.GL" => {
-                "General Literature"
-            },
+            | "cs.GL" => "General Literature",
             | "cs.GR" => "Graphics",
             | "cs.GT" => {
                 "Computer Science and \
@@ -936,29 +522,17 @@ impl Category {
                 "Human-Computer \
                  Interaction"
             },
-            | "cs.IR" => {
-                "Information Retrieval"
-            },
-            | "cs.IT" => {
-                "Information Theory"
-            },
-            | "cs.LG" => {
-                "Machine Learning"
-            },
+            | "cs.IR" => "Information Retrieval",
+            | "cs.IT" => "Information Theory",
+            | "cs.LG" => "Machine Learning",
             | "cs.LO" => {
                 "Logic in Computer \
                  Science"
             },
-            | "cs.MA" => {
-                "Multiagent Systems"
-            },
+            | "cs.MA" => "Multiagent Systems",
             | "cs.MM" => "Multimedia",
-            | "cs.MS" => {
-                "Mathematical Software"
-            },
-            | "cs.NA" => {
-                "Numerical Analysis"
-            },
+            | "cs.MS" => "Mathematical Software",
+            | "cs.NA" => "Numerical Analysis",
             | "cs.NE" => {
                 "Neural and \
                  Evolutionary Computing"
@@ -967,140 +541,62 @@ impl Category {
                 "Networking and \
                  Internet Architecture"
             },
-            | "cs.OH" => {
-                "Other Computer Science"
-            },
-            | "cs.OS" => {
-                "Operating Systems"
-            },
+            | "cs.OH" => "Other Computer Science",
+            | "cs.OS" => "Operating Systems",
             | "cs.PF" => "Performance",
-            | "cs.PL" => {
-                "Programming Languages"
-            },
+            | "cs.PL" => "Programming Languages",
             | "cs.RO" => "Robotics",
-            | "cs.SC" => {
-                "Symbolic Computation"
-            },
+            | "cs.SC" => "Symbolic Computation",
             | "cs.SD" => "Sound",
-            | "cs.SE" => {
-                "Software Engineering"
-            },
+            | "cs.SE" => "Software Engineering",
             | "cs.SI" => {
                 "Social and \
                  Information Networks"
             },
-            | "cs.SY" => {
-                "Systems and Control"
-            },
-            | "math.AC" => {
-                "Commutative Algebra"
-            },
-            | "math.AG" => {
-                "Algebraic Geometry"
-            },
-            | "math.AP" => {
-                "Analysis of PDEs"
-            },
-            | "math.AT" => {
-                "Algebraic Topology"
-            },
+            | "cs.SY" => "Systems and Control",
+            | "math.AC" => "Commutative Algebra",
+            | "math.AG" => "Algebraic Geometry",
+            | "math.AP" => "Analysis of PDEs",
+            | "math.AT" => "Algebraic Topology",
             | "math.CA" => {
                 "Classical Analysis \
                  and ODEs"
             },
-            | "math.CO" => {
-                "Combinatorics"
-            },
-            | "math.CT" => {
-                "Category Theory"
-            },
-            | "math.CV" => {
-                "Complex Variables"
-            },
-            | "math.DG" => {
-                "Differential Geometry"
-            },
-            | "math.DS" => {
-                "Dynamical Systems"
-            },
-            | "math.FA" => {
-                "Functional Analysis"
-            },
-            | "math.GM" => {
-                "General Mathematics"
-            },
-            | "math.GN" => {
-                "General Topology"
-            },
-            | "math.GR" => {
-                "Group Theory"
-            },
-            | "math.GT" => {
-                "Geometric Topology"
-            },
-            | "math.HO" => {
-                "History and Overview"
-            },
-            | "math.IT" => {
-                "Information Theory"
-            },
-            | "math.KT" => {
-                "K-Theory and Homology"
-            },
+            | "math.CO" => "Combinatorics",
+            | "math.CT" => "Category Theory",
+            | "math.CV" => "Complex Variables",
+            | "math.DG" => "Differential Geometry",
+            | "math.DS" => "Dynamical Systems",
+            | "math.FA" => "Functional Analysis",
+            | "math.GM" => "General Mathematics",
+            | "math.GN" => "General Topology",
+            | "math.GR" => "Group Theory",
+            | "math.GT" => "Geometric Topology",
+            | "math.HO" => "History and Overview",
+            | "math.IT" => "Information Theory",
+            | "math.KT" => "K-Theory and Homology",
             | "math.LO" => "Logic",
-            | "math.MG" => {
-                "Metric Geometry"
-            },
-            | "math.MP" => {
-                "Mathematical Physics"
-            },
-            | "math.NA" => {
-                "Numerical Analysis"
-            },
-            | "math.NT" => {
-                "Number Theory"
-            },
-            | "math.OA" => {
-                "Operator Algebras"
-            },
+            | "math.MG" => "Metric Geometry",
+            | "math.MP" => "Mathematical Physics",
+            | "math.NA" => "Numerical Analysis",
+            | "math.NT" => "Number Theory",
+            | "math.OA" => "Operator Algebras",
             | "math.OC" => {
                 "Optimization and \
                  Control"
             },
-            | "math.PR" => {
-                "Probability"
-            },
-            | "math.QA" => {
-                "Quantum Algebra"
-            },
-            | "math.RA" => {
-                "Rings and Algebras"
-            },
-            | "math.RT" => {
-                "Representation Theory"
-            },
-            | "math.SG" => {
-                "Symplectic Geometry"
-            },
-            | "math.SP" => {
-                "Spectral Theory"
-            },
-            | "math.ST" => {
-                "Statistics Theory"
-            },
-            | "q-bio.BM" => {
-                "Biomolecules"
-            },
-            | "q-bio.CB" => {
-                "Cell Behavior"
-            },
+            | "math.PR" => "Probability",
+            | "math.QA" => "Quantum Algebra",
+            | "math.RA" => "Rings and Algebras",
+            | "math.RT" => "Representation Theory",
+            | "math.SG" => "Symplectic Geometry",
+            | "math.SP" => "Spectral Theory",
+            | "math.ST" => "Statistics Theory",
+            | "q-bio.BM" => "Biomolecules",
+            | "q-bio.CB" => "Cell Behavior",
             | "q-bio.GN" => "Genomics",
-            | "q-bio.MN" => {
-                "Molecular Networks"
-            },
-            | "q-bio.NC" => {
-                "Neurons and Cognition"
-            },
+            | "q-bio.MN" => "Molecular Networks",
+            | "q-bio.NC" => "Neurons and Cognition",
             | "q-bio.OT" => {
                 "Other Quantitative \
                  Biology"
@@ -1109,59 +605,27 @@ impl Category {
                 "Populations and \
                  Evolution"
             },
-            | "q-bio.QM" => {
-                "Quantitative Methods"
-            },
-            | "q-bio.SC" => {
-                "Subcellular Processes"
-            },
-            | "q-bio.TO" => {
-                "Tissues and Organs"
-            },
-            | "q-fin.CP" => {
-                "Computational Finance"
-            },
+            | "q-bio.QM" => "Quantitative Methods",
+            | "q-bio.SC" => "Subcellular Processes",
+            | "q-bio.TO" => "Tissues and Organs",
+            | "q-fin.CP" => "Computational Finance",
             | "q-fin.EC" => "Economics",
-            | "q-fin.GN" => {
-                "General Finance"
-            },
-            | "q-fin.MF" => {
-                "Mathematical Finance"
-            },
-            | "q-fin.PM" => {
-                "Portfolio Management"
-            },
-            | "q-fin.PR" => {
-                "Pricing of Securities"
-            },
-            | "q-fin.RM" => {
-                "Risk Management"
-            },
-            | "q-fin.ST" => {
-                "Statistical Finance"
-            },
+            | "q-fin.GN" => "General Finance",
+            | "q-fin.MF" => "Mathematical Finance",
+            | "q-fin.PM" => "Portfolio Management",
+            | "q-fin.PR" => "Pricing of Securities",
+            | "q-fin.RM" => "Risk Management",
+            | "q-fin.ST" => "Statistical Finance",
             | "q-fin.TR" => {
                 "Trading and Market \
                  Microstructure"
             },
-            | "stat.AP" => {
-                "Applications"
-            },
-            | "stat.CO" => {
-                "Computation"
-            },
-            | "stat.ME" => {
-                "Methodology"
-            },
-            | "stat.ML" => {
-                "Machine Learning"
-            },
-            | "stat.OT" => {
-                "Other Statistics"
-            },
-            | "stat.TH" => {
-                "Statistics Theory"
-            },
+            | "stat.AP" => "Applications",
+            | "stat.CO" => "Computation",
+            | "stat.ME" => "Methodology",
+            | "stat.ML" => "Machine Learning",
+            | "stat.OT" => "Other Statistics",
+            | "stat.TH" => "Statistics Theory",
             | "eess.AS" => {
                 "Audio and Speech \
                  Processing"
@@ -1170,21 +634,11 @@ impl Category {
                 "Image and Video \
                  Processing"
             },
-            | "eess.SP" => {
-                "Signal Processing"
-            },
-            | "eess.SY" => {
-                "Systems and Control"
-            },
-            | "econ.EM" => {
-                "Econometrics"
-            },
-            | "econ.GN" => {
-                "General Economics"
-            },
-            | "econ.TH" => {
-                "Theoretical Economics"
-            },
+            | "eess.SP" => "Signal Processing",
+            | "eess.SY" => "Systems and Control",
+            | "econ.EM" => "Econometrics",
+            | "econ.GN" => "General Economics",
+            | "econ.TH" => "Theoretical Economics",
             | _ => "Unknown",
         }
     }
